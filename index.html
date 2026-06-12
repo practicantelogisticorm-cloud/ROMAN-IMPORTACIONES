@@ -840,7 +840,8 @@ function doGet(e) {
       var hd  = hs.getDataRange().getValues();
       var productos = [];
       for (var i = 1; i < pd.length; i++) {
-        if (!pd[i][0]) continue;
+        // Saltar solo si la fila está completamente vacía (sin id, sin cod, sin nombre)
+        if (!pd[i][0] && !pd[i][1] && !pd[i][2]) continue;
         try {
           var proveedores = [];
           for (var k=0; k<3; k++) {
