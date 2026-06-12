@@ -856,10 +856,14 @@ function doGet(e) {
               });
             }
           }
+          var codVal = pd[i][1] ? String(pd[i][1]).trim() : '';
+          var nombreVal = String(pd[i][2]||'').replace(/""/g,'"');
+          var descVal = String(pd[i][3]||'').replace(/""/g,'"');
+          var idVal = pd[i][0] ? String(pd[i][0]) : (codVal ? ('p_cod_'+codVal) : ('p_row_'+i+'_'+new Date().getTime()));
           productos.push({
-            id: pd[i][0], cod: pd[i][1] ? String(pd[i][1]) : '', nombre: pd[i][2], desc: pd[i][3], cat: pd[i][4],
+            id: idVal, cod: codVal, nombre: nombreVal, desc: descVal, cat: pd[i][4],
             proveedores: proveedores,
-            createdAt: pd[i][20], updatedAt: pd[i][21]
+            createdAt: pd[i][20]||'', updatedAt: pd[i][21]||''
           });
         } catch(pe) {}
       }
@@ -2038,9 +2042,9 @@ function prodAddProvBlock(nombre='',precio='',fecha='',costo='',fechaCosto=''){c
 function prodRemoveProvBlock(btn){const wrap=document.getElementById('prod-proveedores-wrap');btn.closest('.prod-prov-block').remove();[...wrap.children].forEach((b,i)=>b.querySelector('.ppb-label').textContent=`Proveedor ${i+1}`);document.getElementById('prod-add-prov-btn').style.display=wrap.children.length>=3?'none':'';}
 function prodSave(){const nombre=document.getElementById('prod-f-nombre').value.trim();const err=document.getElementById('prod-modal-err');if(!nombre){err.textContent='El nombre del producto es obligatorio.';err.style.display='';return;}
 if(!prodEditId){const prods=prodLoad();const cod=document.getElementById('prod-f-cod').value.trim();const normQ=nombre.toLowerCase().trim();// Solo alerta de duplicado si el COD coincide (y tiene COD)
-const dup=cod?prods.find(p=>p.cod&&p.cod.trim().toLowerCase()===cod.toLowerCase()):null;const similar=!dup&&prods.filter(p=>{const n=p.nombre.toLowerCase();return n.includes(normQ)||normQ.includes(n.substring(0,6));}).slice(0,2);if(dup){err.innerHTML=`⚠️ Ya existe un producto con el código <strong>${cod}</strong>: "${dup.nombre}". Edítalo en lugar de crear uno nuevo.`;err.style.display='';return;}
+const dup=cod?prods.find(p=>p.cod&&p.cod.trim().toLowerCase()===cod.toLowerCase()):null;const similar=!dup&&prods.filter(p=>p.nombre.toLowerCase().trim()===normQ).slice(0,2);if(dup){err.innerHTML=`⚠️ Ya existe un producto con el código <strong>${cod}</strong>: "${dup.nombre}". Edítalo en lugar de crear uno nuevo.`;err.style.display='';return;}
 if(similar&&similar.length){const existingDupAlert=document.getElementById('prod-dup-warning');if(existingDupAlert)existingDupAlert.remove();const alertDiv=document.createElement('div');alertDiv.id='prod-dup-warning';alertDiv.className='dup-alert';alertDiv.innerHTML=`<span class="da-icon">⚠️</span><div>
-        <strong>Posible duplicado detectado.</strong> Hay productos similares ya en el catálogo:<br>
+        <strong>Producto con el mismo nombre detectado.</strong> Ya existe en el catálogo:<br>
         ${similar.map(p=>'<a onclick="prodOpenModal(\''+p.id+'\'  );document.getElementById(\'prod-dup-warning\')?.remove()">'+p.nombre+'</a>').join(' &nbsp;·&nbsp; ')}
         <br><span style="font-size:10.5px;opacity:.8">Si es un producto diferente, puedes continuar guardando.</span>
       </div>
@@ -2135,7 +2139,37 @@ function prodSaveGsUrlFromInput(){const v=document.getElementById('prod-gs-url-i
 async function prodTestGS(){const url=prodLoadGsUrl();if(!url){toast('Configura la URL primero','danger');return;}
 toast('Probando conexión...','info');try{const r=await fetch(url+(url.includes('?')?'&':'?')+'action=ping&userId=test',{method:'GET',mode:'cors'});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();if(data.ok!==undefined)toast('✅ Conexión OK — Apps Script responde correctamente','info');else throw new Error('Respuesta inesperada');}catch(e){toast('❌ Error de conexión: '+e.message+' — ¿Re-implementaste el script con el código nuevo?','danger');}}
 async function prodImportFromGS(){const url=prodLoadGsUrl();if(!url){toast('Configura la URL primero','danger');return;}
-if(!confirm('¿Importar productos desde Google Sheets?\nEsto REEMPLAZARÁ el catálogo local con los datos del Sheet.'))return;toast('Importando productos desde Sheets...','info');try{const r=await fetch(url+(url.includes('?')?'&':'?')+'action=getProductos',{method:'GET',mode:'cors'});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();if(!data.ok)throw new Error(data.msg||'Error desconocido');if(data.productos&&Array.isArray(data.productos)){prodSaveAll(data.productos);if(data.historial&&Array.isArray(data.historial))histSaveAll(data.historial);prodRender();prodGsRenderConfig();toast(`✅ Importados ${data.productos.length} productos desde Sheets`,'info');}else{throw new Error('El script no devolvió datos de productos. ¿Actualizaste el código Apps Script?');}}catch(e){toast('❌ Error al importar: '+e.message,'danger');}}
+if(!confirm('¿Importar productos desde Google Sheets?\nEsto REEMPLAZARÁ el catálogo local con los datos del Sheet.'))return;toast('Importando productos desde Sheets...','info');try{const r=await fetch(url+(url.includes('?')?'&':'?')+'action=getProductos',{method:'GET',mode:'cors'});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();if(!data.ok)throw new Error(data.msg||'Error desconocido');if(data.productos&&Array.isArray(data.productos)){
+  // ── Deduplicar por COD (identificador principal del producto) ──
+  const incoming=data.productos;
+  const byCod={}; const noCod=[];
+  incoming.forEach(p=>{
+    const cod=(p.cod||'').trim();
+    if(!cod){noCod.push(p);return;}
+    if(!byCod[cod]){byCod[cod]=p;return;}
+    // Ya existe un producto con este COD → fusionar
+    const existing=byCod[cod];
+    // Conservar nombre/desc/cat más reciente (updatedAt mayor) o el que tenga texto
+    const newer=(p.updatedAt||'')>(existing.updatedAt||'')?p:existing;
+    const older=newer===p?existing:p;
+    // Fusionar proveedores sin duplicar (por nombre de proveedor)
+    const provMap={};
+    (older.proveedores||[]).forEach(pv=>{if(pv.nombre)provMap[pv.nombre.toLowerCase()]=pv;});
+    (newer.proveedores||[]).forEach(pv=>{if(pv.nombre)provMap[pv.nombre.toLowerCase()]=pv;});
+    byCod[cod]={
+      id:newer.id||older.id,
+      cod:cod,
+      nombre:newer.nombre||older.nombre,
+      desc:newer.desc||older.desc,
+      cat:newer.cat||older.cat,
+      proveedores:Object.values(provMap).slice(0,3),
+      createdAt:older.createdAt||newer.createdAt,
+      updatedAt:newer.updatedAt||older.updatedAt
+    };
+  });
+  const merged=[...Object.values(byCod),...noCod];
+  prodSaveAll(merged);
+  data.productos=merged;if(data.historial&&Array.isArray(data.historial))histSaveAll(data.historial);prodRender();prodGsRenderConfig();toast(`✅ Importados ${data.productos.length} productos desde Sheets`,'info');}else{throw new Error('El script no devolvió datos de productos. ¿Actualizaste el código Apps Script?');}}catch(e){toast('❌ Error al importar: '+e.message,'danger');}}
 function quickEditField(idx,fieldId,fieldType,btn){if(!collabUser)collabUser=getCollabUser();const r=records[idx];const holder=lockGetHolder(r.ref_roman);if(holder){toast('🔒 '+holder.nombre+' está editando este registro.','danger');return;}
 if(!lockAcquire(r.ref_roman)){toast('🔒 Otro usuario está editando este registro.','danger');return;}
 lockHeartbeatStart(r.ref_roman);const fieldDef=SECTIONS.flatMap(s=>s.fields).find(f=>f.id===fieldId);const label=fieldDef?fieldDef.label:fieldId;const currentVal=r[fieldId]||'';const displayCurrent=fieldType==='date'?formatDate(currentVal):currentVal;document.querySelectorAll('.quick-edit-popup').forEach(p=>p.remove());const popup=document.createElement('div');popup.className='quick-edit-popup';popup.style.cssText='position:fixed;z-index:10000;background:#fff;border:1.5px solid #1a4fad;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.18);padding:12px 14px;min-width:260px;max-width:340px';let inputHtml='';if(fieldType==='textarea'){inputHtml=`<textarea id="qe-input" style="width:100%;height:80px;border:1px solid #ccd3e0;border-radius:5px;padding:6px 8px;font-size:12px;font-family:inherit;resize:vertical">${displayCurrent}</textarea>`;}else if(fieldType==='date'){inputHtml=`<input type="text" id="qe-input" value="${displayCurrent}" placeholder="dd/mm/yyyy o -" maxlength="10"
