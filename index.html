@@ -881,7 +881,7 @@ function doGet(e) {
 
     // ── Ping ──
     if (action === 'ping') {
-      return makeOutput({ok:true, msg:'pong'});
+      return makeOutput({ok:true, msg:'pong', version:'v6-cod'});
     }
 
     // ── GET Importaciones (default) ──
@@ -2138,7 +2138,7 @@ function prodGsRenderConfig(){const box=document.getElementById('prod-gs-config-
     </div>`;}
 function prodSaveGsUrlFromInput(){const v=document.getElementById('prod-gs-url-input')?.value?.trim()||'';prodSaveGsUrl(v);prodGsRenderConfig();toast(v?'✅ URL de Productos guardada':'URL de Productos eliminada',v?'info':'danger');}
 async function prodTestGS(){const url=prodLoadGsUrl();if(!url){toast('Configura la URL primero','danger');return;}
-toast('Probando conexión...','info');try{const r=await fetch(url+(url.includes('?')?'&':'?')+'action=ping&userId=test',{method:'GET',mode:'cors'});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();if(data.ok!==undefined)toast('✅ Conexión OK — Apps Script responde correctamente','info');else throw new Error('Respuesta inesperada');}catch(e){toast('❌ Error de conexión: '+e.message+' — ¿Re-implementaste el script con el código nuevo?','danger');}}
+toast('Probando conexión...','info');try{const r=await fetch(url+(url.includes('?')?'&':'?')+'action=ping&userId=test',{method:'GET',mode:'cors'});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();if(data.ok!==undefined){const v=data.version?(' — Versión del script: '+data.version+(data.version==='v6-cod'?' ✅ (actualizado)':' ⚠️ (código VIEJO, debes re-implementar)')):' — ⚠️ Código VIEJO sin versión (debes re-implementar)';toast('✅ Conexión OK'+v,'info');}else throw new Error('Respuesta inesperada');}catch(e){toast('❌ Error de conexión: '+e.message+' — ¿Re-implementaste el script con el código nuevo?','danger');}}
 async function prodImportFromGS(){const url=prodLoadGsUrl();if(!url){toast('Configura la URL primero','danger');return;}
 if(!confirm('¿Importar productos desde Google Sheets?\nEsto REEMPLAZARÁ el catálogo local con los datos del Sheet.'))return;toast('Importando productos desde Sheets...','info');try{const r=await fetch(url+(url.includes('?')?'&':'?')+'action=getProductos',{method:'GET',mode:'cors'});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();if(!data.ok)throw new Error(data.msg||'Error desconocido');if(data.productos&&Array.isArray(data.productos)){
   // ── Deduplicar por COD (identificador principal del producto) ──
