@@ -834,7 +834,7 @@ function doGet(e) {
 
     // ── GET Productos ──
     if (action === 'getProductos') {
-      var ps  = getOrCreateSheet(PROD_SHEET, ['id','nombre','desc','cat','proveedores','createdAt','updatedAt']);
+      var ps  = getOrCreateSheet(PROD_SHEET, ['id','cod','nombre','desc','cat','prov1','precio1','costo1','fechaPrecio1','fechaCosto1','prov2','precio2','costo2','fechaPrecio2','fechaCosto2','prov3','precio3','costo3','fechaPrecio3','fechaCosto3','createdAt','updatedAt']);
       var hs  = getOrCreateSheet(HIST_SHEET, ['id','prodId','proveedor','precio','precioAnterior','fecha']);
       var pd  = ps.getDataRange().getValues();
       var hd  = hs.getDataRange().getValues();
@@ -842,10 +842,24 @@ function doGet(e) {
       for (var i = 1; i < pd.length; i++) {
         if (!pd[i][0]) continue;
         try {
+          var proveedores = [];
+          for (var k=0; k<3; k++) {
+            var base = 5 + k*5; // prov,precio,costo,fechaPrecio,fechaCosto
+            var pvNombre = pd[i][base];
+            if (pvNombre) {
+              proveedores.push({
+                nombre: String(pvNombre),
+                precio: pd[i][base+1] || '',
+                costo: pd[i][base+2] || '',
+                fechaPrecio: pd[i][base+3] ? String(pd[i][base+3]) : '',
+                fechaCosto: pd[i][base+4] ? String(pd[i][base+4]) : ''
+              });
+            }
+          }
           productos.push({
-            id: pd[i][0], nombre: pd[i][1], desc: pd[i][2], cat: pd[i][3],
-            proveedores: JSON.parse(pd[i][4] || '[]'),
-            createdAt: pd[i][5], updatedAt: pd[i][6]
+            id: pd[i][0], cod: pd[i][1] ? String(pd[i][1]) : '', nombre: pd[i][2], desc: pd[i][3], cat: pd[i][4],
+            proveedores: proveedores,
+            createdAt: pd[i][20], updatedAt: pd[i][21]
           });
         } catch(pe) {}
       }
@@ -898,16 +912,23 @@ function doPost(e) {
       var prods = payload.productos || [];
       var hist  = payload.historial  || [];
 
-      var prodSheet = getOrCreateSheet(PROD_SHEET, ['id','nombre','desc','cat','proveedores','createdAt','updatedAt']);
+      var prodSheet = getOrCreateSheet(PROD_SHEET, ['id','cod','nombre','desc','cat','prov1','precio1','costo1','fechaPrecio1','fechaCosto1','prov2','precio2','costo2','fechaPrecio2','fechaCosto2','prov3','precio3','costo3','fechaPrecio3','fechaCosto3','createdAt','updatedAt']);
       prodSheet.clearContents();
-      prodSheet.getRange(1,1,1,7).setValues([['id','nombre','desc','cat','proveedores','createdAt','updatedAt']])
+      prodSheet.getRange(1,1,1,22).setValues([['id','cod','nombre','desc','cat','prov1','precio1','costo1','fechaPrecio1','fechaCosto1','prov2','precio2','costo2','fechaPrecio2','fechaCosto2','prov3','precio3','costo3','fechaPrecio3','fechaCosto3','createdAt','updatedAt']])
         .setBackground('#16693A').setFontColor('#FFFFFF').setFontWeight('bold');
       if (prods.length) {
         var prodRows = prods.map(function(p){
-          return [p.id||'', p.nombre||'', p.desc||'', p.cat||'',
-                  JSON.stringify(p.proveedores||[]), p.createdAt||'', p.updatedAt||''];
+          var pv = p.proveedores||[];
+          var p1=pv[0]||{}, p2=pv[1]||{}, p3=pv[2]||{};
+          return [
+            p.id||'', p.cod||'', p.nombre||'', p.desc||'', p.cat||'',
+            p1.nombre||'', p1.precio||'', p1.costo||'', p1.fechaPrecio||'', p1.fechaCosto||'',
+            p2.nombre||'', p2.precio||'', p2.costo||'', p2.fechaPrecio||'', p2.fechaCosto||'',
+            p3.nombre||'', p3.precio||'', p3.costo||'', p3.fechaPrecio||'', p3.fechaCosto||'',
+            p.createdAt||'', p.updatedAt||''
+          ];
         });
-        prodSheet.getRange(2,1,prodRows.length,7).setValues(prodRows);
+        prodSheet.getRange(2,1,prodRows.length,22).setValues(prodRows);
       }
 
       var histSheet = getOrCreateSheet(HIST_SHEET, ['id','prodId','proveedor','precio','precioAnterior','fecha']);
