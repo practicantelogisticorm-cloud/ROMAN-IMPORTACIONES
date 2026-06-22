@@ -157,6 +157,50 @@
         <input type="checkbox" id="flt-con-cert-origen" onchange="buscar()" style="cursor:pointer">
         📜 Con cert. origen
       </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#444;cursor:pointer;white-space:nowrap;background:#fce4ec;border:1px solid #e57373;border-radius:5px;padding:4px 10px;height:30px;box-sizing:border-box">
+        <input type="checkbox" id="flt-sin-pi" onchange="buscar()" style="cursor:pointer">
+        📋 Sin PI
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#444;cursor:pointer;white-space:nowrap;background:#fce4ec;border:1px solid #e57373;border-radius:5px;padding:4px 10px;height:30px;box-sizing:border-box">
+        <input type="checkbox" id="flt-sin-booking" onchange="buscar()" style="cursor:pointer">
+        🔖 Sin Booking
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#444;cursor:pointer;white-space:nowrap;background:#fce4ec;border:1px solid #e57373;border-radius:5px;padding:4px 10px;height:30px;box-sizing:border-box">
+        <input type="checkbox" id="flt-sin-eta" onchange="buscar()" style="cursor:pointer">
+        📅 Sin ETA
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#444;cursor:pointer;white-space:nowrap;background:#fce4ec;border:1px solid #e57373;border-radius:5px;padding:4px 10px;height:30px;box-sizing:border-box">
+        <input type="checkbox" id="flt-sin-mercaderia" onchange="buscar()" style="cursor:pointer">
+        📦 Sin mercadería
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#444;cursor:pointer;white-space:nowrap;background:#fce4ec;border:1px solid #e57373;border-radius:5px;padding:4px 10px;height:30px;box-sizing:border-box">
+        <input type="checkbox" id="flt-sin-transportista" onchange="buscar()" style="cursor:pointer">
+        🚛 Sin transportista
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#444;cursor:pointer;white-space:nowrap;background:#fff3cd;border:1px solid #ffc107;border-radius:5px;padding:4px 10px;height:30px;box-sizing:border-box">
+        <input type="checkbox" id="flt-sin-anticipo" onchange="buscar()" style="cursor:pointer">
+        💰 Sin anticipo
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#444;cursor:pointer;white-space:nowrap;background:#fff3cd;border:1px solid #ffc107;border-radius:5px;padding:4px 10px;height:30px;box-sizing:border-box">
+        <input type="checkbox" id="flt-sin-cancelacion" onchange="buscar()" style="cursor:pointer">
+        💳 Sin cancelación
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#444;cursor:pointer;white-space:nowrap;background:#e8f4fd;border:1px solid #90caf9;border-radius:5px;padding:4px 10px;height:30px;box-sizing:border-box">
+        <input type="checkbox" id="flt-sin-precinto" onchange="buscar()" style="cursor:pointer">
+        🔒 Sin precinto
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#444;cursor:pointer;white-space:nowrap;background:#e8f4fd;border:1px solid #90caf9;border-radius:5px;padding:4px 10px;height:30px;box-sizing:border-box">
+        <input type="checkbox" id="flt-sin-aci" onchange="buscar()" style="cursor:pointer">
+        🤝 Sin ACI
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#444;cursor:pointer;white-space:nowrap;background:#f3e5f5;border:1px solid #ce93d8;border-radius:5px;padding:4px 10px;height:30px;box-sizing:border-box">
+        <input type="checkbox" id="flt-con-retraso" onchange="buscar()" style="cursor:pointer">
+        ⏰ Con retraso
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#444;cursor:pointer;white-space:nowrap;background:#e8f5e9;border:1px solid #66bb6a;border-radius:5px;padding:4px 10px;height:30px;box-sizing:border-box">
+        <input type="checkbox" id="flt-sin-garantia" onchange="buscar()" style="cursor:pointer">
+        🛡 Sin garantía
+      </label>
     </div>
   </div>
   <div id="recent-section" style="display:none">
@@ -1328,10 +1372,32 @@ if(!lockAcquire(r.ref_roman)){toast('🔒 Otro usuario está editando este regis
 lockHeartbeatStart(r.ref_roman);const dateIds=new Set(SECTIONS.flatMap(s=>s.fields).filter(f=>f.type==='date').map(f=>f.id));const selectOpts={};SECTIONS.flatMap(s=>s.fields).filter(f=>f.type==='select'&&(f.opts||[]).includes('OTRO')).forEach(f=>selectOpts[f.id]=f.opts||[]);allIds.forEach(id=>{const el=document.getElementById("f_"+id);if(!el)return;const rawVal=dateIds.has(id)?formatDate(r[id]||''):(r[id]||'');if(selectOpts[id]&&rawVal&&!selectOpts[id].includes(rawVal)){el.value='OTRO';const otro=document.getElementById("f_"+id+"_otro");if(otro){otro.value=rawVal;otro.style.display='';}}else{el.value=rawVal;const otro=document.getElementById("f_"+id+"_otro");if(otro){otro.style.display='none';otro.value='';}}});recalc();updateFieldStyles();editIdx=idx;document.getElementById('edit-indicator').style.display='inline-flex';document.getElementById('edit-ref').textContent=r.ref_roman||'(sin ref)';switchTab('registro');window.scrollTo(0,0);toast("✏️ Editando "+(r.ref_roman||'')+" — bloqueado para otros usuarios","info");renderTabla();setTimeout(()=>refreshAllDatalists(),50);}
 function deleteRecord(idx){const r=records[idx];if(!confirm("¿Eliminar definitivamente el registro "+r.ref_roman+"?\nEsta acción no se puede deshacer."))return;records.splice(idx,1);saveDB();renderTabla();buscar();toast("Registro eliminado","danger");}
 function poblarFiltrosRapidos(){const campos=[{id:'flt-proveedor',field:'proveedor'},{id:'flt-naviera',field:'naviera'},{id:'flt-transportista',field:'transportista'},{id:'flt-mercaderia',field:'mercaderia'},{id:'flt-agente',field:'agente_aduanas'},];campos.forEach(({id,field})=>{const sel=document.getElementById(id);if(!sel)return;const cur=sel.value;const first=sel.options[0].outerHTML;const vals=[...new Set(records.map(r=>r[field]).filter(v=>v&&v.trim()))].sort();sel.innerHTML=first+vals.map(v=>`<option value="${v}">${v.length>30?v.substring(0,28)+'…':v}</option>`).join('');if(vals.includes(cur))sel.value=cur;});}
-function buscar(){const q=document.getElementById('search-input').value.trim().toLowerCase();const campo=document.getElementById('search-field').value;const anio=document.getElementById('search-anio').value;const fCanal=document.getElementById('flt-canal')?.value||'';const fProv=document.getElementById('flt-proveedor')?.value||'';const fNav=document.getElementById('flt-naviera')?.value||'';const fTrans=document.getElementById('flt-transportista')?.value||'';const fMerc=document.getElementById('flt-mercaderia')?.value||'';const fCtnr=document.getElementById('flt-tipo_ctnr')?.value||'';const fAgente=document.getElementById('flt-agente')?.value||'';const fSinSeguro=document.getElementById('flt-sin-seguro')?.checked||false;const fSinDam=document.getElementById('flt-sin-dam')?.checked||false;const fSinBl=document.getElementById('flt-sin-bl')?.checked||false;const fSinCtnr=document.getElementById('flt-sin-ctnr')?.checked||false;const fSinFactura=document.getElementById('flt-sin-factura')?.checked||false;const fConCertOrigen=document.getElementById('flt-con-cert-origen')?.checked||false;const container=document.getElementById('search-results');const hayFiltro=q||anio||fCanal||fProv||fNav||fTrans||fMerc||fCtnr||fAgente||fSinSeguro||fSinDam||fSinBl||fSinCtnr||fSinFactura||fConCertOrigen;if(!hayFiltro){container.innerHTML='<div class="empty-state"><div class="es-icon">🔍</div><p>Usa la búsqueda o los filtros rápidos para encontrar registros</p></div>';document.getElementById('search-count').textContent='';return;}
+function buscar(){const q=document.getElementById('search-input').value.trim().toLowerCase();const campo=document.getElementById('search-field').value;const anio=document.getElementById('search-anio').value;const fCanal=document.getElementById('flt-canal')?.value||'';const fProv=document.getElementById('flt-proveedor')?.value||'';const fNav=document.getElementById('flt-naviera')?.value||'';const fTrans=document.getElementById('flt-transportista')?.value||'';const fMerc=document.getElementById('flt-mercaderia')?.value||'';const fCtnr=document.getElementById('flt-tipo_ctnr')?.value||'';const fAgente=document.getElementById('flt-agente')?.value||'';const fSinSeguro=document.getElementById('flt-sin-seguro')?.checked||false;const fSinDam=document.getElementById('flt-sin-dam')?.checked||false;const fSinBl=document.getElementById('flt-sin-bl')?.checked||false;const fSinCtnr=document.getElementById('flt-sin-ctnr')?.checked||false;const fSinFactura=document.getElementById('flt-sin-factura')?.checked||false;const fConCertOrigen=document.getElementById('flt-con-cert-origen')?.checked||false;
+const fSinPi=document.getElementById('flt-sin-pi')?.checked||false;
+const fSinBooking=document.getElementById('flt-sin-booking')?.checked||false;
+const fSinEta=document.getElementById('flt-sin-eta')?.checked||false;
+const fSinMercaderia=document.getElementById('flt-sin-mercaderia')?.checked||false;
+const fSinTransportista=document.getElementById('flt-sin-transportista')?.checked||false;
+const fSinAnticipo=document.getElementById('flt-sin-anticipo')?.checked||false;
+const fSinCancelacion=document.getElementById('flt-sin-cancelacion')?.checked||false;
+const fSinPrecinto=document.getElementById('flt-sin-precinto')?.checked||false;
+const fSinAci=document.getElementById('flt-sin-aci')?.checked||false;
+const fConRetraso=document.getElementById('flt-con-retraso')?.checked||false;
+const fSinGarantia=document.getElementById('flt-sin-garantia')?.checked||false;const container=document.getElementById('search-results');const hayFiltro=q||anio||fCanal||fProv||fNav||fTrans||fMerc||fCtnr||fAgente||fSinSeguro||fSinDam||fSinBl||fSinCtnr||fSinFactura||fConCertOrigen||fSinPi||fSinBooking||fSinEta||fSinMercaderia||fSinTransportista||fSinAnticipo||fSinCancelacion||fSinPrecinto||fSinAci||fConRetraso||fSinGarantia;if(!hayFiltro){container.innerHTML='<div class="empty-state"><div class="es-icon">🔍</div><p>Usa la búsqueda o los filtros rápidos para encontrar registros</p></div>';document.getElementById('search-count').textContent='';return;}
 let results=records.map((r,i)=>({...r,_idx:i})).filter(r=>{if(anio){const d=getFecha(r);const yr=/^\d{2}\/\d{2}\/(\d{4})$/.test(d)?d.substring(6,10):d.substring(0,4);if(yr!==anio)return false;}
 if(fCanal&&r.canal!==fCanal)return false;if(fProv&&r.proveedor!==fProv)return false;if(fNav&&r.naviera!==fNav)return false;if(fTrans&&r.transportista!==fTrans)return false;if(fMerc&&r.mercaderia!==fMerc)return false;if(fCtnr&&r.tipo_ctnr!==fCtnr)return false;if(fAgente&&r.agente_aduanas!==fAgente)return false;if(fSinSeguro){const s=parseFloat(r.seguro)||0;if(!(!r.seguro||r.seguro===''||r.seguro==='-'||s===0))return false;}
-if(fSinDam&&r.dam&&r.dam!==''&&r.dam!=='-')return false;if(fSinBl&&r.bl_house&&r.bl_house!==''&&r.bl_house!=='-')return false;if(fSinCtnr&&r.n_ctnr&&r.n_ctnr!==''&&r.n_ctnr!=='-')return false;if(fSinFactura&&r.n_factura&&r.n_factura!==''&&r.n_factura!=='-')return false;if(fConCertOrigen&&r.cert_origen!=='CON CERTIFICADO DE ORIGEN')return false;if(!q)return true;if(campo==='cod_producto'){// Buscar IMPOs que tienen costeos del producto con ese código
+if(fSinDam&&r.dam&&r.dam!==''&&r.dam!=='-')return false;if(fSinBl&&r.bl_house&&r.bl_house!==''&&r.bl_house!=='-')return false;if(fSinCtnr&&r.n_ctnr&&r.n_ctnr!==''&&r.n_ctnr!=='-')return false;if(fSinFactura&&r.n_factura&&r.n_factura!==''&&r.n_factura!=='-')return false;if(fConCertOrigen&&r.cert_origen!=='CON CERTIFICADO DE ORIGEN')return false;
+if(fSinPi&&r.pi&&r.pi.trim()&&r.pi!=='-')return false;
+if(fSinBooking&&r.booking&&r.booking.trim()&&r.booking!=='-')return false;
+if(fSinEta&&r.eta&&r.eta.trim()&&r.eta!=='-')return false;
+if(fSinMercaderia&&r.mercaderia&&r.mercaderia.trim()&&r.mercaderia!=='-')return false;
+if(fSinTransportista&&r.transportista&&r.transportista.trim()&&r.transportista!=='-')return false;
+if(fSinAnticipo){const a1=parseFloat(r.anticipo1)||0;const a2=parseFloat(r.anticipo2)||0;if(a1>0||a2>0)return false;}
+if(fSinCancelacion){const c=parseFloat(r.cancelacion)||0;if(c>0)return false;}
+if(fSinPrecinto&&r.n_precinto&&r.n_precinto.trim()&&r.n_precinto!=='-')return false;
+if(fSinAci&&r.aci&&r.aci.trim()&&r.aci!=='-')return false;
+if(fConRetraso&&!(parseFloat(r.sobretiempo)>0))return false;
+if(fSinGarantia){const g=parseFloat(r.monto_garantizar)||0;if(g>0)return false;}if(!q)return true;if(campo==='cod_producto'){// Buscar IMPOs que tienen costeos del producto con ese código
 const prods=prodLoad();const matchProds=prods.filter(p=>(p.cod||'').toLowerCase().includes(q)||(p.nombre||'').toLowerCase().includes(q));if(!matchProds.length)return false;const matchIds=new Set(matchProds.map(p=>p.id));const costeos=JSON.parse(localStorage.getItem('roman_costos_hist_v1')||'[]');const imposConProd=new Set(costeos.filter(c=>matchIds.has(c.prodId)&&c.impo).map(c=>c.impo));return imposConProd.has(r.ref_roman);}
 if(campo==='todos')return allIds.some(id=>(r[id]||'').toLowerCase().includes(q));return(r[campo]||'').toLowerCase().includes(q);});document.getElementById('search-count').textContent=results.length+' resultado'+(results.length!==1?'s':'');function parseFecha(d){if(!d||d==='-')return 0;const m=d.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);if(m)return new Date(m[3],m[2]-1,m[1]).getTime();return new Date(d).getTime()||0;}
 results.sort((a,b)=>{const fa=parseFecha(a.fecha_llegada),fb=parseFecha(b.fecha_llegada);if(fa&&fb)return fb-fa;if(fa)return-1;if(fb)return 1;return 0;});if(results.length===0){container.innerHTML='<div class="empty-state"><div class="es-icon">😕</div><p>No se encontraron resultados con esos filtros</p></div>';return;}
@@ -1355,7 +1421,7 @@ container.innerHTML=results.map(r=>`
       </div>
     </div>
   `).join('');}
-function limpiarBusqueda(){document.getElementById('search-input').value='';document.getElementById('search-field').value='todos';document.getElementById('search-anio').value='';['flt-canal','flt-proveedor','flt-naviera','flt-transportista','flt-mercaderia','flt-tipo_ctnr','flt-agente'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});const cbSS=document.getElementById('flt-sin-seguro');if(cbSS)cbSS.checked=false;['flt-sin-dam','flt-sin-bl','flt-sin-ctnr','flt-sin-factura','flt-con-cert-origen'].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});buscar();}
+function limpiarBusqueda(){document.getElementById('search-input').value='';document.getElementById('search-field').value='todos';document.getElementById('search-anio').value='';['flt-canal','flt-proveedor','flt-naviera','flt-transportista','flt-mercaderia','flt-tipo_ctnr','flt-agente'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});const cbSS=document.getElementById('flt-sin-seguro');if(cbSS)cbSS.checked=false;['flt-sin-dam','flt-sin-bl','flt-sin-ctnr','flt-sin-factura','flt-con-cert-origen','flt-sin-pi','flt-sin-booking','flt-sin-eta','flt-sin-mercaderia','flt-sin-transportista','flt-sin-anticipo','flt-sin-cancelacion','flt-sin-precinto','flt-sin-aci','flt-con-retraso','flt-sin-garantia'].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});buscar();}
 function mostrarDetalle(idx){const r=records[idx];document.getElementById('modal-title').textContent='Detalle: '+r.ref_roman;const body=document.getElementById('modal-body');body.innerHTML=SECTIONS.map(sec=>`
     <div class="detail-section">
       <h4 style="background:${sec.color}">${sec.name}</h4>
