@@ -2121,7 +2121,7 @@ tbody.innerHTML=prods.map(p=>{const pvs=(p.proveedores||[]).concat([{},{},{}]).s
         <button class="prod-action red" onclick="prodDelete('${p.id}')">🗑</button>
       </div></td>
     </tr>`;}).join('');}
-function prodOpenModal(id){prodEditId=id||null;const prods=prodLoad();const p=id?prods.find(x=>x.id===id):null;document.getElementById('prod-modal-title').textContent=p?'✏️ Editar Producto':'➕ Nuevo Producto';document.getElementById('prod-f-nombre').value=p?.nombre||'';document.getElementById('prod-f-cod').value=p?.cod||'';document.getElementById('prod-f-desc').value=p?.desc||'';document.getElementById('prod-f-cat').value=p?.cat||'';document.getElementById('prod-modal-err').style.display='none';const wrap=document.getElementById('prod-proveedores-wrap');wrap.innerHTML='';const provs=p?.proveedores?.length?p.proveedores:[{}];provs.forEach(pv=>prodAddProvBlock(pv.nombre||'',pv.precio||'',pv.fechaPrecio||'',pv.costo||'',pv.fechaCosto||''));document.getElementById('prod-add-prov-btn').style.display=wrap.children.length>=3?'none':'';prodFotoLoad(p?.foto||'');document.getElementById('prod-modal-overlay').classList.add('show');setTimeout(()=>document.getElementById('prod-f-nombre').focus(),80);}
+function prodOpenModal(id){prodEditId=id||null;const prods=prodLoad();const p=id?prods.find(x=>x.id===id):null;if(p)histMigrarProducto(p);document.getElementById('prod-modal-title').textContent=p?'✏️ Editar Producto':'➕ Nuevo Producto';document.getElementById('prod-f-nombre').value=p?.nombre||'';document.getElementById('prod-f-cod').value=p?.cod||'';document.getElementById('prod-f-desc').value=p?.desc||'';document.getElementById('prod-f-cat').value=p?.cat||'';document.getElementById('prod-modal-err').style.display='none';const wrap=document.getElementById('prod-proveedores-wrap');wrap.innerHTML='';const provs=p?.proveedores?.length?p.proveedores:[{}];provs.forEach(pv=>prodAddProvBlock(pv.nombre||'',pv.precio||'',pv.fechaPrecio||'',pv.costo||'',pv.fechaCosto||''));document.getElementById('prod-add-prov-btn').style.display=wrap.children.length>=3?'none':'';prodFotoLoad(p?.foto||'');document.getElementById('prod-modal-overlay').classList.add('show');setTimeout(()=>document.getElementById('prod-f-nombre').focus(),80);}
 function prodCloseModal(){document.getElementById('prod-modal-overlay').classList.remove('show');prodEditId=null;}
 function prodModalClickOut(e){if(e.target===document.getElementById('prod-modal-overlay'))prodCloseModal();}
 function prodAddProvBlock(nombre='',precio='',fecha='',costo='',fechaCosto=''){const wrap=document.getElementById('prod-proveedores-wrap');if(wrap.children.length>=3)return;const blockId='ppb-'+Date.now()+'-'+wrap.children.length;const idx=wrap.children.length;const div=document.createElement('div');div.className='prod-prov-block';div.innerHTML=`
@@ -2168,8 +2168,8 @@ if(similar&&similar.length){const existingDupAlert=document.getElementById('prod
         style="margin-left:auto;flex-shrink:0;height:28px;padding:0 10px;background:#fff;border:1px solid #ffb74d;border-radius:5px;font-size:11px;cursor:pointer;font-weight:700;color:#7a4200">
         Guardar igual
       </button>`;err.parentNode.insertBefore(alertDiv,err);return;}}
-const provBlocks=document.querySelectorAll('#prod-proveedores-wrap .prod-prov-block');const proveedores=[...provBlocks].map(b=>({nombre:b.querySelector('.ppb-nombre').value.trim(),precio:b.querySelector('.ppb-precio').value.trim(),fechaPrecio:b.querySelector('.ppb-fecha')?.value.trim()||'',costo:b.querySelector('.ppb-costo')?.value.trim()||'',fechaCosto:b.querySelector('.ppb-fecha-costo')?.value.trim()||''})).filter(pv=>pv.nombre||pv.precio||pv.costo);const prods=prodLoad();const now=prodNow();if(prodEditId){const idx=prods.findIndex(x=>x.id===prodEditId);if(idx===-1)return;const old=prods[idx];proveedores.forEach(pv=>{if(!pv.precio)return;const oldPv=(old.proveedores||[]).find(o=>o.nombre===pv.nombre);const oldPrice=oldPv?parseFloat(oldPv.precio):null;const newPrice=parseFloat(pv.precio);if(isNaN(newPrice))return;if(oldPrice===null||oldPrice!==newPrice){histAddEntry(prodEditId,pv.nombre,pv.precio,oldPv?.precio??null,pv.fechaPrecio||null);}
-if(pv.costo){const oldCosto=oldPv?parseFloat(oldPv.costo):null;const newCosto=parseFloat(pv.costo);if(!isNaN(newCosto)&&(oldCosto===null||oldCosto!==newCosto)){histAddCosto(prodEditId,pv.nombre,pv.costo,oldPv?.costo??null,pv.fechaCosto||null);}}
+const provBlocks=document.querySelectorAll('#prod-proveedores-wrap .prod-prov-block');const proveedores=[...provBlocks].map(b=>({nombre:b.querySelector('.ppb-nombre').value.trim(),precio:b.querySelector('.ppb-precio').value.trim(),fechaPrecio:b.querySelector('.ppb-fecha')?.value.trim()||'',costo:b.querySelector('.ppb-costo')?.value.trim()||'',fechaCosto:b.querySelector('.ppb-fecha-costo')?.value.trim()||''})).filter(pv=>pv.nombre||pv.precio||pv.costo);const prods=prodLoad();const now=prodNow();if(prodEditId){const idx=prods.findIndex(x=>x.id===prodEditId);if(idx===-1)return;const old=prods[idx];proveedores.forEach(pv=>{if(!pv.precio)return;const oldPv=(old.proveedores||[]).find(o=>o.nombre===pv.nombre);const oldPrice=oldPv?parseFloat(oldPv.precio):null;const newPrice=parseFloat(pv.precio);if(isNaN(newPrice))return;if(oldPrice===null||oldPrice!==newPrice){histAddEntry(prodEditId,pv.nombre,pv.precio,oldPv?.precio??null,pv.fechaPrecio||null);}else if(pv.fechaPrecio){histUpdateUltimaFecha(prodEditId,pv.nombre,pv.fechaPrecio,'precio');}
+if(pv.costo){const oldCosto=oldPv?parseFloat(oldPv.costo):null;const newCosto=parseFloat(pv.costo);if(!isNaN(newCosto)&&(oldCosto===null||oldCosto!==newCosto)){histAddCosto(prodEditId,pv.nombre,pv.costo,oldPv?.costo??null,pv.fechaCosto||null);}else if(pv.fechaCosto){histUpdateUltimaFecha(prodEditId,pv.nombre,pv.fechaCosto,'costo');}}
 pv.updatedAt=now;});const fotoEdit=prodFotoGetData();prods[idx]={...old,nombre,cod:document.getElementById('prod-f-cod').value.trim(),desc:document.getElementById('prod-f-desc').value.trim(),cat:document.getElementById('prod-f-cat').value.trim(),foto:fotoEdit,proveedores,updatedAt:now};}else{const id=prodGenId();proveedores.forEach(pv=>{if(pv.precio){histAddEntry(id,pv.nombre,pv.precio,null,pv.fechaPrecio||null);}if(pv.costo){histAddCosto(id,pv.nombre,pv.costo,null,pv.fechaCosto||null);}pv.updatedAt=now;});const fotoNew=prodFotoGetData();prods.push({id,nombre,cod:document.getElementById('prod-f-cod').value.trim(),desc:document.getElementById('prod-f-desc').value.trim(),cat:document.getElementById('prod-f-cat').value.trim(),foto:fotoNew,proveedores,createdAt:now,updatedAt:now});}
 prodSaveAll(prods);proveedores.forEach(pv=>{if(!pv.nombre)return;const listas=loadListas();const cur=listas['proveedor']||[];if(!cur.includes(pv.nombre.trim())){listas['proveedor']=[...new Set([...cur,pv.nombre.trim()])].sort();saveListas(listas);}});prodCloseModal();prodRender();toast(`✅ Producto "${nombre}" guardado`,'info');}
 function prodDelete(id){const p=prodLoad().find(x=>x.id===id);if(!p)return;if(!confirm(`¿Eliminar el producto "${p.nombre}"?
@@ -2179,23 +2179,72 @@ hist.push({id:prodGenId(),prodId,proveedor:proveedor||'(sin proveedor)',precio:p
 function histAddCosto(prodId,proveedor,costo,costoAnterior,fechaManual=null){const key='roman_costos_hist_v1';let hist=[];try{hist=JSON.parse(localStorage.getItem(key))||[];}catch(e){}let fechaFinal=prodNow();if(fechaManual&&/^\d{4}-\d{2}-\d{2}$/.test(fechaManual)){fechaFinal=new Date(fechaManual+'T12:00:00').toISOString();}
 hist.push({id:prodGenId(),prodId,proveedor:proveedor||'(sin proveedor)',costo:parseFloat(costo),costoAnterior:costoAnterior!==null?parseFloat(costoAnterior):null,fecha:fechaFinal});localStorage.setItem(key,JSON.stringify(hist));}
 function histCostoLoad(prodId){try{return(JSON.parse(localStorage.getItem('roman_costos_hist_v1'))||[]).filter(h=>!prodId||h.prodId===prodId);}catch(e){return[];}}
-function histOpenModal(prodId){const p=prodLoad().find(x=>x.id===prodId);const hist=histLoad().filter(h=>h.prodId===prodId).sort((a,b)=>b.fecha.localeCompare(a.fecha));document.getElementById('hist-modal-title').textContent=`📈 Historial — ${p?.nombre||prodId}`;const body=document.getElementById('hist-modal-body');if(!hist.length){body.innerHTML='<p style="text-align:center;color:var(--text-dim);padding:30px">Sin historial de precios aún.</p>';}
-else{body.innerHTML=hist.map(h=>{let cls='new',icon='🆕',changeHtml='';if(h.precioAnterior!==null&&!isNaN(h.precioAnterior)){const diff=h.precio-h.precioAnterior;if(diff>0){cls='up';icon='▲';changeHtml=`<span class="hist-change up">▲ ${prodFmtPrice(diff)}</span>`;}
-else if(diff<0){cls='down';icon='▼';changeHtml=`<span class="hist-change down">▼ ${prodFmtPrice(Math.abs(diff))}</span>`;}
-else{cls='same';icon='';changeHtml=`<span class="hist-change new">Sin cambio</span>`;}}else{changeHtml=`<span class="hist-change new">Registro inicial</span>`;}
-return`<div class="hist-entry">
-        <div class="hist-dot ${cls}"></div>
-        <div class="hist-date">${prodFmtDate(h.fecha)}</div>
-        <div class="hist-prov">${h.proveedor}</div>
-        <div class="hist-price">${prodFmtPrice(h.precio)}</div>
-        ${changeHtml}
-      </div>`;}).join('');}
+function histUpdateUltimaFecha(prodId,proveedor,fechaManual,tipo){if(!fechaManual||!/^\d{4}-\d{2}-\d{2}$/.test(fechaManual))return;const fechaFinal=new Date(fechaManual+'T12:00:00').toISOString();
+if(tipo==='precio'){const hist=histLoad();const idx=hist.map((h,i)=>({h,i})).filter(x=>x.h.prodId===prodId&&x.h.proveedor===proveedor).sort((a,b)=>b.h.fecha.localeCompare(a.h.fecha))[0]?.i;if(idx===undefined)return;hist[idx].fecha=fechaFinal;histSaveAll(hist);}
+else{const key='roman_costos_hist_v1';let hist=[];try{hist=JSON.parse(localStorage.getItem(key))||[];}catch(e){}const idx=hist.map((h,i)=>({h,i})).filter(x=>x.h.prodId===prodId&&x.h.proveedor===proveedor).sort((a,b)=>b.h.fecha.localeCompare(a.h.fecha))[0]?.i;if(idx===undefined)return;hist[idx].fecha=fechaFinal;localStorage.setItem(key,JSON.stringify(hist));}}
+function histMigrarProducto(p){
+  // Si el producto tiene proveedores con precio/costo pero sin historial, los crea automáticamente
+  if(!p||!p.proveedores||!p.proveedores.length)return;
+  const existPrecios=histLoad().filter(h=>h.prodId===p.id);
+  const existCostos=histCostoLoad(p.id);
+  (p.proveedores).forEach(pv=>{
+    const fechaRef=pv.updatedAt||p.updatedAt||p.createdAt||null;
+    // Migrar precio
+    if(pv.precio&&!isNaN(parseFloat(pv.precio))){
+      const yaExiste=existPrecios.some(h=>h.proveedor===(pv.nombre||'(sin proveedor)'));
+      if(!yaExiste){
+        const hist=histLoad();
+        let fechaFinal=prodNow();
+        if(fechaRef){try{const d=new Date(fechaRef);if(!isNaN(d))fechaFinal=d.toISOString();}catch(e){}}
+        hist.push({id:prodGenId(),prodId:p.id,proveedor:pv.nombre||'(sin proveedor)',precio:parseFloat(pv.precio),precioAnterior:null,fecha:fechaFinal});
+        histSaveAll(hist);
+      }
+    }
+    // Migrar costo
+    if(pv.costo&&!isNaN(parseFloat(pv.costo))){
+      const yaExisteCosto=existCostos.some(h=>h.proveedor===(pv.nombre||'(sin proveedor)'));
+      if(!yaExisteCosto){
+        const key='roman_costos_hist_v1';let hist=[];try{hist=JSON.parse(localStorage.getItem(key))||[];}catch(e){}
+        let fechaFinal=prodNow();
+        if(fechaRef){try{const d=new Date(fechaRef);if(!isNaN(d))fechaFinal=d.toISOString();}catch(e){}}
+        hist.push({id:prodGenId(),prodId:p.id,proveedor:pv.nombre||'(sin proveedor)',costo:parseFloat(pv.costo),costoAnterior:null,fecha:fechaFinal});
+        localStorage.setItem(key,JSON.stringify(hist));
+      }
+    }
+  });
+}
+function histOpenModal(prodId){const p=prodLoad().find(x=>x.id===prodId);
+histMigrarProducto(p);
+const hist=histLoad().filter(h=>h.prodId===prodId).sort((a,b)=>b.fecha.localeCompare(a.fecha));const histCostos=histCostoLoad(prodId).sort((a,b)=>b.fecha.localeCompare(a.fecha));document.getElementById('hist-modal-title').textContent=`📈 Historial — ${p?.nombre||prodId}`;const body=document.getElementById('hist-modal-body');
+// Render precios
+let preciosHtml='';if(!hist.length){preciosHtml='<p style="text-align:center;color:var(--text-dim);padding:16px 0">Sin historial de precios aún.</p>';}
+else{preciosHtml=hist.map(h=>{let cls='new',changeHtml='';if(h.precioAnterior!==null&&!isNaN(h.precioAnterior)){const diff=h.precio-h.precioAnterior;if(diff>0){cls='up';changeHtml=`<span class="hist-change up">▲ ${prodFmtPrice(diff)}</span>`;}else if(diff<0){cls='down';changeHtml=`<span class="hist-change down">▼ ${prodFmtPrice(Math.abs(diff))}</span>`;}else{cls='same';changeHtml=`<span class="hist-change new">Sin cambio</span>`;}}else{changeHtml=`<span class="hist-change new">Registro inicial</span>`;}
+return`<div class="hist-entry"><div class="hist-dot ${cls}"></div><div class="hist-date">${prodFmtDate(h.fecha)}</div><div class="hist-prov">${h.proveedor}</div><div class="hist-price">${prodFmtPrice(h.precio)}</div>${changeHtml}</div>`;}).join('');}
+// Render costos
+let costosHtml='';if(!histCostos.length){costosHtml='<p style="text-align:center;color:var(--text-dim);padding:16px 0">Sin historial de costos aún.</p>';}
+else{costosHtml=histCostos.map(h=>{let cls='new',changeHtml='';if(h.costoAnterior!==null&&!isNaN(h.costoAnterior)){const diff=h.costo-h.costoAnterior;if(diff>0){cls='up';changeHtml=`<span class="hist-change up">▲ S/ ${Math.abs(diff).toFixed(2)}</span>`;}else if(diff<0){cls='down';changeHtml=`<span class="hist-change down">▼ S/ ${Math.abs(diff).toFixed(2)}</span>`;}else{cls='same';changeHtml=`<span class="hist-change new">Sin cambio</span>`;}}else{changeHtml=`<span class="hist-change new">Registro inicial</span>`;}
+return`<div class="hist-entry"><div class="hist-dot ${cls}" style="background:#16693a"></div><div class="hist-date">${prodFmtDate(h.fecha)}</div><div class="hist-prov">${h.proveedor}</div><div class="hist-price" style="color:#16693a">💰 S/ ${parseFloat(h.costo).toFixed(2)}</div>${changeHtml}</div>`;}).join('');}
+body.innerHTML=`
+  <div style="font-weight:700;font-size:12px;color:#1a4fad;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #dde5f0">💲 Historial de Precios (USD)</div>
+  ${preciosHtml}
+  <div style="font-weight:700;font-size:12px;color:#16693a;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;padding-bottom:6px;border-bottom:2px solid #9ed5b5">💰 Historial de Costos (S/)</div>
+  ${costosHtml}`;
 document.getElementById('hist-modal-overlay').classList.add('show');}
 function histCloseModal(){document.getElementById('hist-modal-overlay').classList.remove('show');}
 function prodRefreshMercaderiaDatalist(){const products=prodLoad();const nombres=products.map(p=>p.nombre).filter(Boolean);let dl=document.getElementById('dl-mercaderia-prod');if(!dl){dl=document.createElement('datalist');dl.id='dl-mercaderia-prod';document.body.appendChild(dl);}
 dl.innerHTML=nombres.map(n=>`<option value="${n}">`).join('');const fMerc=document.getElementById('f_mercaderia');if(fMerc&&fMerc.tagName==='INPUT'){fMerc.setAttribute('list','dl-mercaderia-prod');}}
-function prodExportExcel(){const prods=prodLoad();const hist=histLoad();if(!prods.length){toast('No hay productos para exportar','danger');return;}
-const wb=XLSX.utils.book_new();const catData=[['Producto','Descripción','Categoría','Prov 1','Precio 1','Prov 2','Precio 2','Prov 3','Precio 3','Creado','Actualizado']];prods.forEach(p=>{const pvs=(p.proveedores||[]).concat([{},{},{}]).slice(0,3);catData.push([p.nombre,p.desc||'',p.cat||'',pvs[0]?.nombre||'',pvs[0]?.precio||'',pvs[1]?.nombre||'',pvs[1]?.precio||'',pvs[2]?.nombre||'',pvs[2]?.precio||'',p.createdAt?prodFmtDate(p.createdAt):'',p.updatedAt?prodFmtDate(p.updatedAt):'']);});XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(catData),'Catálogo');const histData=[['Producto','Proveedor','Precio','Precio Anterior','Diferencia','Fecha']];hist.sort((a,b)=>b.fecha.localeCompare(a.fecha)).forEach(h=>{const p=prods.find(x=>x.id===h.prodId);const diff=h.precioAnterior!==null?(h.precio-h.precioAnterior):'';histData.push([p?.nombre||h.prodId,h.proveedor,h.precio,h.precioAnterior??'',diff,prodFmtDate(h.fecha)]);});XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(histData),'Historial Precios');XLSX.writeFile(wb,'ROMAN_Productos_'+new Date().toISOString().slice(0,10)+'.xlsx');toast('✅ Excel exportado','info');}
+function prodExportExcel(){const prods=prodLoad();const hist=histLoad();const histCostos=histCostoLoad(null);if(!prods.length){toast('No hay productos para exportar','danger');return;}
+const wb=XLSX.utils.book_new();
+const catData=[['COD','Producto','Descripción','Categoría','Prov 1','Precio 1 (USD)','Costo 1 (S/)','Prov 2','Precio 2 (USD)','Costo 2 (S/)','Prov 3','Precio 3 (USD)','Costo 3 (S/)','Creado','Actualizado']];
+prods.forEach(p=>{const pvs=(p.proveedores||[]).concat([{},{},{}]).slice(0,3);catData.push([p.cod||'',p.nombre,p.desc||'',p.cat||'',pvs[0]?.nombre||'',pvs[0]?.precio?parseFloat(pvs[0].precio)||'':'',pvs[0]?.costo?parseFloat(pvs[0].costo)||'':'',pvs[1]?.nombre||'',pvs[1]?.precio?parseFloat(pvs[1].precio)||'':'',pvs[1]?.costo?parseFloat(pvs[1].costo)||'':'',pvs[2]?.nombre||'',pvs[2]?.precio?parseFloat(pvs[2].precio)||'':'',pvs[2]?.costo?parseFloat(pvs[2].costo)||'':'',p.createdAt?prodFmtDate(p.createdAt):'',p.updatedAt?prodFmtDate(p.updatedAt):'']);});
+const wsCat=XLSX.utils.aoa_to_sheet(catData);wsCat['!cols']=[{wch:12},{wch:28},{wch:22},{wch:16},{wch:20},{wch:14},{wch:13},{wch:20},{wch:14},{wch:13},{wch:20},{wch:14},{wch:13},{wch:18},{wch:18}];XLSX.utils.book_append_sheet(wb,wsCat,'Catálogo');
+const histData=[['COD','Producto','Proveedor','Precio (USD)','Precio Anterior','Diferencia','Fecha']];
+hist.sort((a,b)=>b.fecha.localeCompare(a.fecha)).forEach(h=>{const p=prods.find(x=>x.id===h.prodId);const diff=h.precioAnterior!==null?(h.precio-h.precioAnterior):'';histData.push([p?.cod||'',p?.nombre||h.prodId,h.proveedor,h.precio,h.precioAnterior??'',diff,prodFmtDate(h.fecha)]);});
+const wsHist=XLSX.utils.aoa_to_sheet(histData);wsHist['!cols']=[{wch:12},{wch:28},{wch:20},{wch:14},{wch:16},{wch:12},{wch:20}];XLSX.utils.book_append_sheet(wb,wsHist,'Historial Precios');
+const histCostData=[['COD','Producto','Proveedor','Costo (S/)','Costo Anterior','Diferencia','Fecha']];
+histCostos.sort((a,b)=>b.fecha.localeCompare(a.fecha)).forEach(h=>{const p=prods.find(x=>x.id===h.prodId);const diff=h.costoAnterior!==null?(h.costo-h.costoAnterior):'';histCostData.push([p?.cod||'',p?.nombre||h.prodId,h.proveedor,h.costo,h.costoAnterior??'',diff,prodFmtDate(h.fecha)]);});
+const wsHC=XLSX.utils.aoa_to_sheet(histCostData);wsHC['!cols']=[{wch:12},{wch:28},{wch:20},{wch:14},{wch:16},{wch:12},{wch:20}];XLSX.utils.book_append_sheet(wb,wsHC,'Historial Costos');
+XLSX.writeFile(wb,'ROMAN_Productos_'+new Date().toISOString().slice(0,10)+'.xlsx');toast('✅ Excel exportado — 3 hojas: Catálogo, Historial Precios, Historial Costos','info');}
 async function prodSyncGS(){const url=prodLoadGsUrl();if(!url){toast('Configura la URL de Google Sheets para Productos primero','danger');return;}
 const prods=prodLoad();const hist=histLoad();if(!prods.length){toast('No hay productos para sincronizar','danger');return;}
 toast('Exportando productos a Google Sheets...','info');try{const r=await fetch(url,{method:'POST',mode:'cors',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'syncProductos',productos:prods,historial:hist,userId:collabUser?.id||'anon',userName:collabUser?.nombre||'Usuario'})});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();if(!data.ok)throw new Error(data.msg||'Error del script');toast(`✅ ${prods.length} productos exportados a Google Sheets`,'info');prodGsRenderConfig();}catch(e){toast('❌ Error al exportar: '+e.message+' — ¿Actualizaste el código Apps Script?','danger');}}
