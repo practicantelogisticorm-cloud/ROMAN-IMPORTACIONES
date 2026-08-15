@@ -1528,13 +1528,16 @@ function mostrarDetalle(idx){const r=records[idx];document.getElementById('modal
   `;document.getElementById('modal-overlay').classList.add('show');}
 function closeModal(e){if(e.target.id==='modal-overlay')document.getElementById('modal-overlay').classList.remove('show');}
 function renderTabla(){const wrap=document.getElementById('tabla-wrap');if(records.length===0){wrap.innerHTML='<div class="empty-state"><div class="es-icon">📋</div><p>Aún no hay registros</p></div>';return;}
-const cols=[{id:'ref_roman',label:'REF ROMAN'},{id:'cod_producto',label:'COD'},{id:'mercaderia',label:'MERCADERÍA'},{id:'proveedor',label:'PROVEEDOR'},{id:'fecha_pedido',label:'PEDIDO'},{id:'fecha_llegada',label:'LLEGADA'},{id:'canal',label:'CANAL'},{id:'dam',label:'DAM'},{id:'valor_cif',label:'CIF USD'},{id:'total_enviado',label:'TOTAL ENVIADO'},{id:'naviera',label:'NAVIERA'},{id:'transportista',label:'TRANSPORTISTA'},];wrap.innerHTML=`<table class="data-table">
-    <thead><tr>${cols.map(c=>`<th>${c.label}</th>`).join('')}<th>ACCIONES</th></tr></thead>
+const cols=[{id:'ref_roman',label:'REF ROMAN'},{id:'cod_producto',label:'COD'},{id:'mercaderia',label:'MERCADERÍA'},{id:'proveedor',label:'PROVEEDOR'},{id:'fecha_pedido',label:'PEDIDO'},{id:'fecha_llegada',label:'LLEGADA'},{id:'canal',label:'CANAL'},{id:'dam',label:'DAM'},{id:'valor_cif',label:'CIF USD'},{id:'total_enviado',label:'TOTAL ENVIADO'},{id:'naviera',label:'NAVIERA'},{id:'transportista',label:'TRANSPORTISTA'},];
+const order=records.map((r,i)=>i).sort((a,b)=>(parseFloat(records[a].cntr_anio)||999999)-(parseFloat(records[b].cntr_anio)||999999));
+wrap.innerHTML=`<table class="data-table">
+    <thead><tr><th style="text-align:center;width:52px">N°</th>${cols.map(c=>`<th>${c.label}</th>`).join('')}<th>ACCIONES</th></tr></thead>
     <tbody>
-    ${records.map((r,i)=>{
+    ${order.map(i=>{
+      const r=records[i];
       const {altaFaltantes} = calcCompletion(r);
       const inc = altaFaltantes.length > 0;
-      return `<tr class="${inc?'row-incompleto':''}">${cols.map(c=>{const empty=!r[c.id]||r[c.id].trim()==='';let val=r[c.id]||'—';let tdStyle='';if(c.id==='mercaderia'&&r[c.id]){const full=r[c.id].replace(/\n/g,' · ');const short=full.length>45?full.substring(0,43)+'…':full;val=`<span title="${full.replace(/"/g,'&quot;')}" style="cursor:default">${short}</span>`;tdStyle=' style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"';}
+      return `<tr class="${inc?'row-incompleto':''}"><td style="text-align:center;font-weight:700;color:#4a9eff">${r.cntr_anio||'—'}</td>${cols.map(c=>{const empty=!r[c.id]||r[c.id].trim()==='';let val=r[c.id]||'—';let tdStyle='';if(c.id==='mercaderia'&&r[c.id]){const full=r[c.id].replace(/\n/g,' · ');const short=full.length>45?full.substring(0,43)+'…':full;val=`<span title="${full.replace(/"/g,'&quot;')}" style="cursor:default">${short}</span>`;tdStyle=' style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"';}
 if(c.id==='canal'&&r[c.id])val=`<span style="font-weight:700;color:${r[c.id]==='ROJO'?'#ff6b6b':r[c.id]==='VERDE'?'#4ade80':'#fbbf24'}">${r[c.id]}</span>`;if((c.id==='valor_cif'||c.id==='total_enviado')&&r[c.id])val='$ '+parseFloat(r[c.id]).toLocaleString('es-PE',{minimumFractionDigits:2});if(c.id==='percepcion'&&r[c.id])val='S/ '+parseFloat(r[c.id]).toLocaleString('es-PE',{minimumFractionDigits:2});if(c.id==='peso_total'&&r[c.id])val=parseFloat(r[c.id]).toLocaleString('es-PE',{minimumFractionDigits:2})+' kg';if((c.id==='fecha_pedido'||c.id==='fecha_llegada')&&r[c.id])val=formatDate(r[c.id]);return`<td class="${empty&&inc?'cel-vacia':''}"${tdStyle}>${val}</td>`;}).join('')}<td><div class="td-actions"><button onclick="mostrarDetalle(${i})">👁 Ver</button><button onclick="exportarFichaImpo(${i})"style="color:#4ade80">📄 PDF</button>${(()=>{const h=lockGetHolder(r.ref_roman);return h?`<button disabled title="🔒 ${h.nombre} está editando" style="opacity:.5;cursor:not-allowed">🔒 ${h.nombre}</button>`:`<button onclick="editRecord(${i})">✏️</button>`;})()}<button onclick="deleteRecord(${i})"style="color:#ff6b6b">🗑</button></div></td></tr>`;
     }).join('')}
     </tbody>
