@@ -29,7 +29,6 @@
     <button class="nav-btn" onclick="switchTab('gsheets')">🟢 Google Sheets</button>
     <button class="nav-btn" onclick="switchTab('productos')">📦 Productos</button>
     <button class="nav-btn" onclick="switchTab('calendario')">📅 Calendario</button>
-    <button class="nav-btn" onclick="switchTab('documentos')">📋 Documentos</button>
     <button class="nav-btn" onclick="switchTab('anios')" style="color:#4ad996">🗂 Gestión Años</button>
   </nav>
   <div class="year-selector-wrap">
@@ -226,6 +225,7 @@
     <button class="btn orange" onclick="exportarExcel()">📊 Excel</button>
     <button class="btn" onclick="switchTab('registro')">➕ Nuevo Registro</button>
     <button class="btn" onclick="recalcularNumeracionManual()" title="Reordena el N° CNTR DEL AÑO por fecha de numeración (DAM) → ETA real → ETA pactado">🔢 Recalcular N° CNTR</button>
+    <button class="btn green" onclick="docExportExcel()" title="Excel con el estado de documentos de todas las IMPO">📋 Excel Documentos</button>
     <span class="rec-count" id="tabla-count">0 registros</span>
   </div>
   <div class="table-wrap" id="tabla-wrap">
@@ -1244,6 +1244,195 @@ function doPost(e) {
 })();
 </script>
 <script>
+const DOC_KEY = 'roman_documentos_v1';
+const DOC_CAMPOS = [
+  {id:'invoice',          label:'INVOICE'},
+  {id:'packing_list',     label:'PACKING LIST'},
+  {id:'series',           label:'SERIES'},
+  {id:'hbl_telex',        label:'HBL / TELEX'},
+  {id:'direccionamiento', label:'DIRECCIONAMIENTO'},
+  {id:'cert_origen',      label:'CERTIFICADO DE ORIGEN'},
+  {id:'dam_conta',        label:'DAM REMITIDA A CONTABILIDAD',      enImagen:false},
+  {id:'costeo_conta',     label:'COSTEO REMITIDO A CONTABILIDAD',   enImagen:false},
+  {id:'merc_sistema',     label:'MERCADERÍA INGRESADA AL SISTEMA',  enImagen:false},
+];
+
+function docLoad(){
+  try{ return JSON.parse(localStorage.getItem(DOC_KEY))||{}; }catch(e){ return {}; }
+}
+function docSaveAll(d){ localStorage.setItem(DOC_KEY, JSON.stringify(d)); }
+
+// Lee el estado de un ítem soportando el formato legado {ok:true}
+function docEstadoDe(item){
+  if(!item) return 'pend';
+  if(item.estado) return item.estado; // 'ok' | 'no_req'
+  if(item.ok) return 'ok';
+  return 'pend';
+}
+
+// Ciclo: pendiente -> ok -> no requiere -> pendiente
+function docCycle(ref, campoId, containerId){
+  if(!ref){ toast('Ingresa y guarda el REF.ROMAN primero','danger'); return; }
+  const all = docLoad();
+  if(!all[ref]) all[ref] = { docs:{} };
+  if(!all[ref].docs) all[ref].docs = {};
+  const actual = docEstadoDe(all[ref].docs[campoId]);
+  if(actual === 'pend'){
+    const hoy = new Date().toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'});
+    all[ref].docs[campoId] = { estado:'ok', fecha: hoy };
+  } else if(actual === 'ok'){
+    all[ref].docs[campoId] = { estado:'no_req' };
+  } else {
+    delete all[ref].docs[campoId];
+  }
+  docSaveAll(all);
+  docRefreshWidget(containerId, ref);
+}
+
+function docWidgetHTML(ref, containerId){
+  if(!ref){
+    return `<div class="doc-widget-empty">📌 Ingresa y guarda el REF.ROMAN para habilitar el control de documentos de esta importación.</div>`;
+  }
+  const all = docLoad();
+  const d = all[ref]?.docs || {};
+
+  const renderPill = c => {
+    const est = docEstadoDe(d[c.id]);
+    const cls = est==='ok' ? 'ok' : est==='no_req' ? 'norq' : 'pend';
+    const icon = est==='ok' ? '✅' : est==='no_req' ? '➖' : '❌';
+    const txt  = est==='ok' ? (d[c.id]?.fecha||'OK') : est==='no_req' ? 'No requiere' : 'Pendiente';
+    return `<div class="doc-pill ${cls}" onclick="docCycle('${ref}','${c.id}','${containerId}')" title="Click para cambiar: Pendiente → OK → No requiere">
+      <span>${c.label}</span><span class="doc-pill-state">${icon} ${txt}</span>
+    </div>`;
+  };
+
+  const docsPrincipales = DOC_CAMPOS.filter(c => c.enImagen !== false);
+  const seguimientoInterno = DOC_CAMPOS.filter(c => c.enImagen === false);
+
+  const items = docsPrincipales.map(renderPill).join('');
+  const itemsInternos = seguimientoInterno.length
+    ? `<div class="doc-widget-subtitle">📌 Seguimiento interno (no se incluye en la imagen de pendientes)</div>
+       <div class="doc-widget-list">${seguimientoInterno.map(renderPill).join('')}</div>`
+    : '';
+
+  const resueltos = DOC_CAMPOS.filter(c => docEstadoDe(d[c.id]) !== 'pend').length;
+  const pendCount = DOC_CAMPOS.length - resueltos;
+
+  return `
+    <div class="doc-widget-list">${items}</div>
+    ${itemsInternos}
+    <div class="doc-widget-actions">
+      <span class="doc-widget-progress">${resueltos}/${DOC_CAMPOS.length} resueltos${pendCount ? ` · ⚠️ ${pendCount} pendiente${pendCount!==1?'s':''}` : ' · ✅ Todo listo'}</span>
+      <button class="doc-btn-icon" onclick="docGenerateImage('${ref}')">🖼️ Generar imagen de pendientes</button>
+    </div>`;
+}
+
+function docRefreshWidget(containerId, ref){
+  const el = document.getElementById(containerId);
+  if(el) el.innerHTML = docWidgetHTML(ref, containerId);
+}
+
+// Widget dentro del formulario (Nuevo Registro / Editar) — reacciona al REF.ROMAN en vivo
+function docRefreshFormWidget(){
+  docRefreshWidget('doc-widget-form', v('ref_roman'));
+}
+
+/* ===== Generar imagen de documentos pendientes (para enviar al jefe) ===== */
+function docGenerateImage(ref){
+  const rec = records.find(r => r.ref_roman === ref);
+  if(!rec){ toast('No se encontró la IMPO — guarda el registro primero','danger'); return; }
+  const all = docLoad();
+  const d = all[ref]?.docs || {};
+  const pendientesArr = DOC_CAMPOS.filter(c => c.enImagen !== false && docEstadoDe(d[c.id]) === 'pend');
+
+  const hbl = rec.bl_house || '—';
+  const mbl = rec.bl_master || '—';
+  const ctnr = rec.n_ctnr || '—';
+  const invoiceRow = rec.n_factura
+    ? `<div class="die-row"><b>N° INVOICE:</b> ${rec.n_factura}</div>`
+    : '';
+
+  const outstandingHtml = pendientesArr.length
+    ? `<div class="die-outstanding-title">📋 DOCUMENTOS PENDIENTES:</div>` +
+      pendientesArr.map(c => `<div class="die-doc-line">• ${c.label} <span class="x">❌</span></div>`).join('')
+    : `<div class="die-all-ok">✅ Todos los documentos completos</div>`;
+
+  const box = document.getElementById('doc-image-export');
+  box.innerHTML = `
+    <div class="die-title">📌 ${ref}</div>
+    <div class="die-row"><b>HBL:</b> ${hbl} &nbsp; <b>MBL:</b> ${mbl}</div>
+    <div class="die-row"><b>N° CONTENEDOR:</b> ${ctnr}</div>
+    ${invoiceRow}
+    <hr class="die-sep">
+    ${outstandingHtml}
+    <div class="die-footer">Generado ${new Date().toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'})}</div>
+  `;
+
+  html2canvas(box, {scale:3, backgroundColor:'#ffffff'}).then(canvas => {
+    canvas.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Pendientes_${ref}_${new Date().toISOString().split('T')[0]}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('✅ Imagen generada — lista para enviar');
+    });
+  }).catch(()=> toast('Error generando la imagen','danger'));
+}
+
+function docExportExcel(){
+  const all = docLoad();
+  const impos = records.filter(r=>r.ref_roman).sort((a,b)=>(b.ref_roman||'').localeCompare(a.ref_roman||''));
+  if(!impos.length){ toast('No hay importaciones para exportar','danger'); return; }
+
+  const headers = ['REF', ...DOC_CAMPOS.map(c=>c.label), 'RESUELTOS'];
+  const thStyle = 'background:#0f1f3d;color:#fff;padding:7px 12px;font-size:10px;font-weight:700;letter-spacing:.4px;border:1px solid #1e3a6e;text-align:center';
+  const tdBase = 'padding:6px 10px;border:1px solid #dde5f0;font-size:11px;text-align:center;vertical-align:middle';
+
+  const dataRows = impos.map(r => {
+    const ref = r.ref_roman;
+    const d = all[ref]?.docs||{};
+    const resueltos = DOC_CAMPOS.filter(c=>docEstadoDe(d[c.id])!=='pend').length;
+    const pct = Math.round(resueltos/DOC_CAMPOS.length*100);
+    const pctColor = pct===100?'#16693a':pct>=50?'#856404':'#b91c1c';
+    const pctBg = pct===100?'#edf7ee':pct>=50?'#fff9c4':'#fce4ec';
+
+    const docCells = DOC_CAMPOS.map(c => {
+      const est = docEstadoDe(d[c.id]);
+      const fecha = d[c.id]?.fecha||'';
+      const bg = est==='ok' ? '#edf7ee' : est==='no_req' ? '#eef0f4' : '#fce4ec';
+      const color = est==='ok' ? '#16693a' : est==='no_req' ? '#6b7383' : '#b91c1c';
+      const txt = est==='ok' ? `✅${fecha?' '+fecha:''}` : est==='no_req' ? '➖ No requiere' : '❌';
+      return `<td style="${tdBase};background:${bg};color:${color};font-weight:700">${txt}</td>`;
+    }).join('');
+
+    return `<tr>
+      <td style="${tdBase};font-weight:700;text-align:left;background:#f0f4fb">${ref}${r.mercaderia?'<br><span style="font-size:10px;color:#8a99b5">'+r.mercaderia.substring(0,40)+'</span>':''}</td>
+      ${docCells}
+      <td style="${tdBase};background:${pctBg};color:${pctColor};font-weight:800;font-size:12px">${resueltos}/${DOC_CAMPOS.length}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<html><head><meta charset="UTF-8">
+    <style>body{font-family:'Segoe UI',Arial,sans-serif}</style></head><body>
+    <h2 style="font-family:'Segoe UI';color:#0f1f3d;margin-bottom:2px">CONTROL DE DOCUMENTOS — IMPORTACIONES ROMAN</h2>
+    <p style="font-size:11px;color:#888;margin-bottom:14px">Generado: ${new Date().toLocaleDateString('es-PE',{day:'2-digit',month:'long',year:'numeric'})}</p>
+    <table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%">
+      <thead><tr>${headers.map(h=>`<th style="${thStyle}">${h}</th>`).join('')}</tr></thead>
+      <tbody>${dataRows}</tbody>
+    </table></body></html>`;
+
+  const blob = new Blob([html],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=`Documentos_ROMAN_${new Date().toISOString().split('T')[0]}.xls`;
+  a.click();
+  toast('✅ Excel de documentos descargado');
+}
+</script>
+
+<script>
 function formatDate(val){if(!val||val==='-')return val||'';const s=String(val).trim();if(/^\d{2}\/\d{2}\/\d{4}$/.test(s))return s;const isoMatch=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(isoMatch)return isoMatch[3]+'/'+isoMatch[2]+'/'+isoMatch[1];return s;}
 function getFecha(r){return[r.fecha_llegada,r.fecha_numeracion,r.fecha_pedido].find(f=>f&&f!=='-'&&f.trim()!=='')||'';}
 function getYearMonth(d){if(!d||d==='-')return null;const s=String(d).trim();if(!s)return null;const dmy=s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);if(dmy)return dmy[3]+'-'+dmy[2];const iso=s.match(/^(\d{4})-(\d{2})/);if(iso)return iso[1]+'-'+iso[2];if(/^\d{4,5}$/.test(s)){const serial=parseInt(s);if(serial>1000&&serial<100000){const d2=new Date(Date.UTC(1899,11,30)+serial*86400000);const mm=String(d2.getUTCMonth()+1).padStart(2,'0');return d2.getUTCFullYear()+'-'+mm;}}
@@ -1439,16 +1628,29 @@ function buildForm(){const cont=document.getElementById("form-sections");SECTION
             </div>`;}else{fd.innerHTML=`<label>${f.label}</label><textarea id="f_${f.id}" oninput="recalc();refreshFieldStyle(this)" placeholder="" style="height:70px"></textarea>`;}}else if(f.type==="select"){const hasOtro=(f.opts||[]).includes('OTRO');if(hasOtro){fd.innerHTML=`<label>${f.label}</label>
             <select id="f_${f.id}" onchange="recalc();refreshFieldStyle(this);selectOtroToggle('${f.id}',this.value)">${(f.opts||[]).map(o=>`<option value="${o}">${o||"—"}</option>`).join("")}</select>
             <input type="text" id="f_${f.id}_otro" placeholder="Escribe el valor..." style="display:none;margin-top:3px;width:100%;height:28px;padding:0 8px;border:1px solid #cdd5e5;border-radius:4px;font-size:12px;font-family:inherit" oninput="recalc();refreshFieldStyle(document.getElementById('f_${f.id}'))">`;}else{fd.innerHTML=`<label>${f.label}</label><select id="f_${f.id}" onchange="recalc();refreshFieldStyle(this)">${(f.opts||[]).map(o=>`<option value="${o}">${o||"—"}</option>`).join("")}</select>`;}}else if(f.type==="datalist"){fd.innerHTML=`<label style="display:flex;align-items:center;gap:6px">${f.label} <span onclick="gestionarLista('${f.id}','${f.label}',this)" style="cursor:pointer;font-size:9px;background:#e8edf5;color:#1a4fad;padding:1px 6px;border-radius:3px;font-weight:700;letter-spacing:.2px">✏️ Editar lista</span></label><div class="ac-wrap"><input type="text" id="f_${f.id}" data-ac="${f.id}" oninput="acOnInput(this);recalc();refreshFieldStyle(this)" onfocus="acOpen(this)" onkeydown="acKey(event,this)" placeholder="Escribe o selecciona..." autocomplete="off"><div class="ac-dropdown" id="acd_${f.id}"></div></div>`;}else if(f.formula){fd.innerHTML=`<label>${f.label}</label><input type="text" id="f_${f.id}" readonly placeholder="—calculado—">`;}else if(f.type==='date'){fd.innerHTML=`<label>${f.label}</label><input type="text" id="f_${f.id}" oninput="recalc();refreshFieldStyle(this)" placeholder="dd/mm/yyyy o -" maxlength="10">`;}else{fd.innerHTML=`<label>${f.label}</label><input type="${f.type}" id="f_${f.id}" oninput="recalc();refreshFieldStyle(this)" placeholder="">`;}
-body.appendChild(fd);if(f.postRender){try{f.postRender();}catch(e){}}});div.appendChild(body);cont.appendChild(div);});}
+body.appendChild(fd);if(f.postRender){try{f.postRender();}catch(e){}}});div.appendChild(body);cont.appendChild(div);});
+  // Sección de Control de Documentos, justo debajo de Notas/Observaciones — no forma parte de SECTIONS (no afecta CSV/exportación)
+  const docSecDiv=document.createElement("div");docSecDiv.className="section";
+  const docHeader=document.createElement("div");docHeader.className="sec-header";docHeader.style.background="#0f2d5e";
+  docHeader.innerHTML=`<div class="sec-dot"></div><h3>📋 Control de Documentos</h3><span class="chevron" id="chev_docwidget">▼</span>`;
+  docHeader.onclick=()=>toggleSec("docwidget");
+  docSecDiv.appendChild(docHeader);
+  const docBody=document.createElement("div");docBody.className="sec-body";docBody.id="secbody_docwidget";
+  docBody.innerHTML=`<div class="doc-widget" id="doc-widget-form" style="grid-column:1/-1"></div>`;
+  docSecDiv.appendChild(docBody);cont.appendChild(docSecDiv);
+  const refInput=document.getElementById('f_ref_roman');
+  if(refInput) refInput.addEventListener('input',docRefreshFormWidget);
+  docRefreshFormWidget();
+}
 function toggleSec(si){const b=document.getElementById("secbody_"+si);const c=document.getElementById("chev_"+si);b.classList.toggle("collapsed");c.textContent=b.classList.contains("collapsed")?"▶":"▼";}
 function guardar(){const ref=v("ref_roman");if(!ref){toast("Ingresa al menos el REF.ROMAN","danger");return;}
 recalc();const dateIds=new Set(SECTIONS.flatMap(s=>s.fields).filter(f=>f.type==='date').map(f=>f.id));const row={};allIds.forEach(id=>{const raw=v(id);row[id]=dateIds.has(id)?parseInputDate(raw):raw;});row._saved_at=new Date().toISOString();if(editIdx!==null){row._created_at=records[editIdx]._created_at||row._saved_at;records[editIdx]=row;toast("Registro "+ref+" actualizado ✓");editIdx=null;document.getElementById('edit-indicator').style.display='none';}else{const dup=records.findIndex(r=>r.ref_roman===ref);if(dup>=0){if(!confirm("Ya existe un registro con REF "+ref+". ¿Deseas reemplazarlo?"))return;row._created_at=records[dup]._created_at||row._saved_at;records[dup]=row;toast("Registro "+ref+" reemplazado ✓","info");}else{row._created_at=row._saved_at;records.push(row);recalcCntrAnioOrder(records);const elCntr=document.getElementById('f_cntr_anio');if(elCntr)elCntr.value=row.cntr_anio;toast("Registro "+ref+" guardado ✓ — N°"+row.cntr_anio+" del año");}}
 const savedRef=row.ref_roman;saveDB();autoLearnDatalists(row);setTimeout(refreshAllDatalists,100);lockRelease(savedRef);limpiarForm();}
 function limpiarForm(){if(editIdx!==null&&records[editIdx]){lockRelease(records[editIdx].ref_roman);}
-allIds.forEach(id=>{const el=document.getElementById("f_"+id);if(el)el.value="";const otro=document.getElementById("f_"+id+"_otro");if(otro){otro.value="";otro.style.display="none";}});recalc();updateFieldStyles();editIdx=null;document.getElementById('edit-indicator').style.display='none';}
+allIds.forEach(id=>{const el=document.getElementById("f_"+id);if(el)el.value="";const otro=document.getElementById("f_"+id+"_otro");if(otro){otro.value="";otro.style.display="none";}});recalc();updateFieldStyles();editIdx=null;document.getElementById('edit-indicator').style.display='none';docRefreshFormWidget();}
 function editRecord(idx){const r=records[idx];if(!collabUser)collabUser=getCollabUser();const holder=lockGetHolder(r.ref_roman);if(holder){toast('🔒 '+holder.nombre+' está editando este registro ahora. Intenta en un momento.','danger');return;}
 if(!lockAcquire(r.ref_roman)){toast('🔒 Otro usuario está editando este registro. Inténtalo en un momento.','danger');return;}
-lockHeartbeatStart(r.ref_roman);const dateIds=new Set(SECTIONS.flatMap(s=>s.fields).filter(f=>f.type==='date').map(f=>f.id));const selectOpts={};SECTIONS.flatMap(s=>s.fields).filter(f=>f.type==='select'&&(f.opts||[]).includes('OTRO')).forEach(f=>selectOpts[f.id]=f.opts||[]);allIds.forEach(id=>{const el=document.getElementById("f_"+id);if(!el)return;const rawVal=dateIds.has(id)?formatDate(r[id]||''):(r[id]||'');if(selectOpts[id]&&rawVal&&!selectOpts[id].includes(rawVal)){el.value='OTRO';const otro=document.getElementById("f_"+id+"_otro");if(otro){otro.value=rawVal;otro.style.display='';}}else{el.value=rawVal;const otro=document.getElementById("f_"+id+"_otro");if(otro){otro.style.display='none';otro.value='';}}});recalc();updateFieldStyles();editIdx=idx;document.getElementById('edit-indicator').style.display='inline-flex';document.getElementById('edit-ref').textContent=r.ref_roman||'(sin ref)';switchTab('registro');window.scrollTo(0,0);toast("✏️ Editando "+(r.ref_roman||'')+" — bloqueado para otros usuarios","info");renderTabla();setTimeout(()=>refreshAllDatalists(),50);}
+lockHeartbeatStart(r.ref_roman);const dateIds=new Set(SECTIONS.flatMap(s=>s.fields).filter(f=>f.type==='date').map(f=>f.id));const selectOpts={};SECTIONS.flatMap(s=>s.fields).filter(f=>f.type==='select'&&(f.opts||[]).includes('OTRO')).forEach(f=>selectOpts[f.id]=f.opts||[]);allIds.forEach(id=>{const el=document.getElementById("f_"+id);if(!el)return;const rawVal=dateIds.has(id)?formatDate(r[id]||''):(r[id]||'');if(selectOpts[id]&&rawVal&&!selectOpts[id].includes(rawVal)){el.value='OTRO';const otro=document.getElementById("f_"+id+"_otro");if(otro){otro.value=rawVal;otro.style.display='';}}else{el.value=rawVal;const otro=document.getElementById("f_"+id+"_otro");if(otro){otro.style.display='none';otro.value='';}}});recalc();updateFieldStyles();editIdx=idx;document.getElementById('edit-indicator').style.display='inline-flex';document.getElementById('edit-ref').textContent=r.ref_roman||'(sin ref)';switchTab('registro');window.scrollTo(0,0);toast("✏️ Editando "+(r.ref_roman||'')+" — bloqueado para otros usuarios","info");renderTabla();setTimeout(()=>refreshAllDatalists(),50);docRefreshFormWidget();}
 function deleteRecord(idx){const r=records[idx];if(!confirm("¿Eliminar definitivamente el registro "+r.ref_roman+"?\nEsta acción no se puede deshacer."))return;records.splice(idx,1);try{fbRef(activeYear).child(fbRecKey(r)).remove();}catch(e){console.warn('FB delete error:',e);}
 saveDB();
 renderTabla();buscar();toast("Registro eliminado","danger");}
@@ -1521,6 +1723,10 @@ function mostrarDetalle(idx){const r=records[idx];document.getElementById('modal
       </div>
     </div>
   `).join('')+`
+    <div class="detail-section">
+      <h4 style="background:#0f2d5e">📋 Control de Documentos</h4>
+      <div style="padding:12px 16px" id="doc-widget-detail">${docWidgetHTML(r.ref_roman,'doc-widget-detail')}</div>
+    </div>
     <div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #dde3ef;flex-wrap:wrap">
       <button class="btn primary" onclick="editRecord(${idx});document.getElementById('modal-overlay').classList.remove('show')">✏️ Editar completo</button>
       <button class="btn green" onclick="exportarFichaImpo(${idx})">📄 Descargar PDF</button>
@@ -2042,7 +2248,7 @@ function exportarCSV(){if(records.length===0){toast("No hay registros","danger")
 const header=allIds.join(",");const rows=records.map(r=>allIds.map(id=>`"${(r[id]||"").replace(/"/g,'""')}"`).join(","));const csv=[header,...rows].join("\n");const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="importaciones_roman_"+(activeYear||"todos")+".csv";a.click();toast("CSV descargado ✓");}
 function exportarExcel(){if(records.length===0){toast("No hay registros","danger");return;}
 const header=allIds.map(id=>`<th>${id}</th>`).join('');const rows=records.map(r=>'<tr>'+allIds.map(id=>`<td>${r[id]||''}</td>`).join('')+'</tr>').join('');const html=`<html><head><meta charset="UTF-8"></head><body><table>${header}${rows}</table></body></html>`;const blob=new Blob([html],{type:'application/vnd.ms-excel;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='importaciones_roman_'+(activeYear||'todos')+'.xls';a.click();toast("Excel descargado ✓");}
-function switchTab(name){document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));document.getElementById('tab-'+name).classList.add('active');const btns=document.querySelectorAll('.nav-btn');btns.forEach(b=>{if(b.getAttribute('onclick').includes("'"+name+"'"))b.classList.add('active');});if(name==='tabla')renderTabla();if(name==='dashboard')renderDashboard();if(name==='alertas')renderAlertas();if(name==='importar'){igUpdateStats();igGoStep(impCurrentStep||1);igInitImportWizard();}if(name==='documentos')docRender();
+function switchTab(name){document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));document.getElementById('tab-'+name).classList.add('active');const btns=document.querySelectorAll('.nav-btn');btns.forEach(b=>{if(b.getAttribute('onclick').includes("'"+name+"'"))b.classList.add('active');});if(name==='tabla')renderTabla();if(name==='dashboard')renderDashboard();if(name==='alertas')renderAlertas();if(name==='importar'){igUpdateStats();igGoStep(impCurrentStep||1);igInitImportWizard();}
 if(name==='anios')renderAnios();if(name==='productos')prodRender();if(name==='gsheets'){gsRenderYearsConfig();prodGsRenderConfig();}
 if(name==='buscar'){poblarFiltrosRapidos();const q=document.getElementById('search-input').value;if(q)buscar();}}
 function toast(msg,type){const t=document.getElementById("toast");t.textContent=msg;t.className="toast"+(type?" "+type:"");t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2800);}
@@ -2540,302 +2746,39 @@ function prodFotoUrlPreview(url,force){url=url.trim();if(!url)return;const urlCo
 
 
 <!-- ============ TAB: DOCUMENTOS ============ -->
-<div class="tab-content" id="tab-documentos">
-
-  <div class="doc-toolbar">
-    <input type="text" id="doc-q" oninput="docRender()" placeholder="🔍 Buscar IMPO o REF..." class="cst-input-main" style="max-width:280px">
-    <select id="doc-flt-anio" onchange="docRender()" class="search-select-sm" style="height:34px;min-width:110px">
-      <option value="">📅 Todos los años</option>
-    </select>
-    <label class="cst-check-label" style="background:#fce4ec;border-color:#e57373">
-      <input type="checkbox" id="doc-flt-pendientes" onchange="docRender()"> ⚠️ Con pendientes
-    </label>
-    <select id="doc-flt-campo" onchange="docRender()" class="search-select-sm" style="height:34px;min-width:180px">
-      <option value="">📄 Pendiente específico...</option>
-    </select>
-    <button class="btn green" onclick="docExportExcel()" style="white-space:nowrap">⬇️ Exportar Excel</button>
-    <span id="doc-count" class="rec-count" style="margin-left:auto"></span>
-  </div>
-
-  <div id="doc-content" style="padding:14px 20px"></div>
-
-</div>
+<div id="doc-image-export"></div>
 
 <style>
-.doc-toolbar{display:flex;gap:8px;align-items:center;padding:10px 20px;background:var(--toolbar-bg,#fff);border-bottom:1px solid var(--toolbar-border,#dde5f0);flex-wrap:wrap}
+/* ===== Widget de Control de Documentos (embebido bajo Notas, por REF) ===== */
+.doc-widget{margin-top:2px}
+.doc-widget-empty{font-size:11.5px;color:var(--text-muted,#8a99b5);font-style:italic;padding:6px 2px}
+.doc-widget-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:7px;margin-bottom:10px}
+.doc-widget-subtitle{font-size:10px;font-weight:700;color:var(--text-muted,#8a99b5);letter-spacing:.3px;margin:2px 0 6px;padding-top:6px;border-top:1px dashed var(--border,#dde5f0)}
+.doc-pill{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:11.5px;font-weight:700;border:1px solid transparent;transition:filter .12s;user-select:none}
+.doc-pill:hover{filter:brightness(0.96)}
+.doc-pill.pend{background:#fce4ec;color:#c62828;border-color:#f4b8c4}
+.doc-pill.ok{background:#edf7ee;color:#16693a;border-color:#bfe3c6}
+.doc-pill.norq{background:#eef0f4;color:#6b7383;border-color:#dadfe8}
+.doc-pill-state{font-size:10px;white-space:nowrap}
+.doc-widget-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.doc-widget-progress{font-size:11px;font-weight:700;color:var(--text-muted,#8a99b5)}
+.doc-btn-icon{border:none;background:#e8f5e9;color:#16693a;font-size:11.5px;font-weight:700;padding:7px 12px;border-radius:7px;cursor:pointer}
+.doc-btn-icon:hover{background:#d3ecd6}
+body.dark .doc-pill.pend{background:rgba(198,40,40,.2);color:#ff6b6b;border-color:rgba(198,40,40,.35)}
+body.dark .doc-pill.ok{background:rgba(22,105,58,.25);color:#4ade80;border-color:rgba(22,105,58,.4)}
+body.dark .doc-pill.norq{background:rgba(255,255,255,.06);color:#9aa3b5;border-color:rgba(255,255,255,.12)}
+body.dark .doc-btn-icon{background:rgba(22,105,58,.25);color:#4ade80}
 
-/* Grid de tarjetas IMPO */
-.doc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;padding:0}
-
-/* Tarjeta por IMPO */
-.doc-card{background:var(--bg-card,#fff);border:1px solid var(--border,#dde5f0);border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);transition:box-shadow .15s,transform .12s}
-.doc-card:hover{box-shadow:0 6px 20px rgba(26,79,173,.13);transform:translateY(-2px)}
-.doc-card-header{padding:12px 16px;display:flex;align-items:center;gap:10px;background:linear-gradient(90deg,#0f2d5e,#1a4fad)}
-.doc-card-ref{font-size:15px;font-weight:800;color:#fff;letter-spacing:.4px;flex:1}
-.doc-card-merc{font-size:10px;color:rgba(255,255,255,.65);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
-.doc-progress-wrap{display:flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:70px}
-.doc-progress-bar{width:70px;height:6px;background:rgba(255,255,255,.2);border-radius:3px;overflow:hidden}
-.doc-progress-fill{height:100%;border-radius:3px;transition:width .3s}
-.doc-progress-txt{font-size:10px;color:rgba(255,255,255,.8);font-weight:700}
-
-/* Lista de documentos */
-.doc-checklist{padding:10px 14px 12px}
-.doc-item{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:7px;cursor:pointer;transition:background .1s;user-select:none;margin-bottom:2px}
-.doc-item:hover{background:var(--bg-card2,#f5f7fc)}
-.doc-item input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:#16693a;flex-shrink:0}
-.doc-item-label{flex:1;font-size:12px;font-weight:600;color:var(--text-main,#1a1a2e)}
-.doc-item.checked .doc-item-label{color:var(--text-muted,#8a99b5);text-decoration:line-through}
-.doc-item-date{font-size:10px;color:var(--text-muted,#9aa3b5);white-space:nowrap}
-.doc-item-badge{font-size:9.5px;padding:2px 7px;border-radius:10px;font-weight:700;white-space:nowrap}
-.doc-item-badge.ok{background:#edf7ee;color:#16693a}
-.doc-item-badge.pend{background:#fce4ec;color:#c62828}
-
-/* Nota por IMPO */
-.doc-nota-wrap{padding:8px 14px 12px;border-top:1px solid var(--border,#eef0f7)}
-.doc-nota-input{width:100%;border:1px solid var(--border,#dde5f0);border-radius:6px;padding:6px 10px;font-size:11px;font-family:inherit;resize:none;height:44px;background:var(--input-bg,#f9fafb);color:var(--text-main,#1a1a2e)}
-.doc-nota-input:focus{outline:none;border-color:#1a4fad;background:#fff}
-
-/* Dark mode */
-body.dark .doc-card{background:var(--bg-card);border-color:var(--border)}
-body.dark .doc-item:hover{background:var(--bg-card2)}
-body.dark .doc-nota-input{background:var(--bg-card2);color:var(--text-main);border-color:var(--border)}
-body.dark .doc-item-badge.ok{background:rgba(22,105,58,.25);color:#4ade80}
-body.dark .doc-item-badge.pend{background:rgba(198,40,40,.2);color:#ff6b6b}
+/* Tarjeta de imagen exportable (oculta, usada por html2canvas) */
+#doc-image-export{position:fixed;left:-9999px;top:0;width:420px;background:#ffffff;font-family:'Segoe UI',Arial,sans-serif;border:1px solid #d8dee8;border-radius:10px;padding:20px 22px;box-sizing:border-box}
+#doc-image-export .die-title{font-size:16px;font-weight:800;color:#0f2d5e;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+#doc-image-export .die-row{font-size:12.5px;color:#1a1a2e;margin-bottom:7px;display:flex;gap:6px}
+#doc-image-export .die-row b{color:#374151;font-weight:700}
+#doc-image-export .die-sep{border:none;border-top:1px solid #e4e9f4;margin:12px 0 10px}
+#doc-image-export .die-outstanding-title{font-size:12.5px;font-weight:800;color:#0f2d5e;margin-bottom:8px}
+#doc-image-export .die-doc-line{font-size:12.5px;color:#1a1a2e;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+#doc-image-export .die-doc-line .x{color:#c62828;font-weight:800}
+#doc-image-export .die-doc-line .ok{color:#16693a;font-weight:800}
+#doc-image-export .die-all-ok{font-size:13px;font-weight:700;color:#16693a}
+#doc-image-export .die-footer{margin-top:14px;font-size:9.5px;color:#9aa3b5;text-align:right}
 </style>
-
-<script>
-const DOC_KEY = 'roman_documentos_v1';
-const DOC_CAMPOS = [
-  {id:'invoice',      label:'INVOICE'},
-  {id:'packing_list', label:'PACKING LIST'},
-  {id:'seguro',       label:'SEGURO'},{id:'n_seguro',     label:'N° PÓLIZA SEGURO'},
-  {id:'hbl',          label:'HBL'},
-  {id:'direccionamiento', label:'DIRECCIONAMIENTO'},
-  {id:'garantia',     label:'FORMA DE GARANTIZAR'},
-  {id:'series',       label:'SERIES'},
-];
-
-function docLoad(){
-  try{ return JSON.parse(localStorage.getItem(DOC_KEY))||{}; }catch(e){ return {}; }
-}
-function docSaveAll(d){ localStorage.setItem(DOC_KEY, JSON.stringify(d)); }
-
-function docGetData(impoRef){
-  const all = docLoad();
-  if(!all[impoRef]) all[impoRef] = { docs:{}, nota:'' };
-  return all[impoRef];
-}
-
-function docToggle(impoRef, docId){
-  const all = docLoad();
-  if(!all[impoRef]) all[impoRef] = { docs:{}, nota:'' };
-  const cur = all[impoRef].docs[docId];
-  if(cur && cur.ok){
-    // Si está marcado, desmarcar
-    all[impoRef].docs[docId] = { ok: false, fecha: null };
-  } else {
-    // Marcar con fecha de hoy
-    const hoy = new Date().toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'});
-    all[impoRef].docs[docId] = { ok: true, fecha: hoy };
-  }
-  docSaveAll(all);
-  docRender();
-}
-
-function docExpandToggle(header){
-  const body = header.nextElementSibling;
-  const chevron = header.querySelector('.doc-chevron');
-  const open = body.style.display === 'none';
-  body.style.display = open ? '' : 'none';
-  if(chevron) chevron.style.transform = open ? 'rotate(180deg)' : '';
-}
-
-function docSaveNota(impoRef, valor){
-  const all = docLoad();
-  if(!all[impoRef]) all[impoRef] = { docs:{}, nota:'' };
-  all[impoRef].nota = valor;
-  docSaveAll(all);
-}
-
-function docRender(){
-  const q = (document.getElementById('doc-q')?.value||'').toLowerCase().trim();
-  const anioFlt = document.getElementById('doc-flt-anio')?.value||'';
-  const soloPend = document.getElementById('doc-flt-pendientes')?.checked||false;
-  const campoFlt = document.getElementById('doc-flt-campo')?.value||'';
-  const all = docLoad();
-
-  // Poblar selector campo pendiente (solo una vez si está vacío)
-  const campoSel = document.getElementById('doc-flt-campo');
-  if(campoSel && campoSel.options.length <= 1){
-    campoSel.innerHTML = '<option value="">📄 Pendiente específico...</option>' +
-      DOC_CAMPOS.map(c=>`<option value="${c.id}">❌ ${c.label} pendiente</option>`).join('');
-  }
-
-  // Poblar selector año
-  const sel = document.getElementById('doc-flt-anio');
-  const prev = sel.value;
-  const anios = [...new Set(records.map(r=>(r.ref_roman||'').match(/\d{2,4}/)?.[0]||'').filter(Boolean))].sort().reverse();
-  sel.innerHTML = '<option value="">📅 Todos los años</option>' +
-    anios.map(a=>`<option value="${a}" ${a===prev?'selected':''}>${a}</option>`).join('');
-
-  // Filtrar IMPOs
-  let impos = records
-    .filter(r => r.ref_roman)
-    .filter(r => !q || r.ref_roman.toLowerCase().includes(q) || (r.mercaderia||'').toLowerCase().includes(q))
-    .filter(r => !anioFlt || (r.ref_roman||'').includes(anioFlt));
-
-  if(soloPend){
-    impos = impos.filter(r => {
-      const d = all[r.ref_roman]?.docs||{};
-      return DOC_CAMPOS.some(c => !d[c.id]?.ok);
-    });
-  }
-
-  if(campoFlt){
-    impos = impos.filter(r => !all[r.ref_roman]?.docs?.[campoFlt]?.ok);
-  }
-
-  // Ordenar: más vacío (menor %) arriba, más lleno abajo
-  impos.sort((a,b) => {
-    const pctA = DOC_CAMPOS.filter(c=>all[a.ref_roman]?.docs?.[c.id]?.ok).length;
-    const pctB = DOC_CAMPOS.filter(c=>all[b.ref_roman]?.docs?.[c.id]?.ok).length;
-    if(pctA !== pctB) return pctA - pctB; // menos completo primero
-    return (b.ref_roman||'').localeCompare(a.ref_roman||'');
-  });
-
-  document.getElementById('doc-count').textContent = impos.length + ' IMPO' + (impos.length!==1?'s':'');
-
-  const cont = document.getElementById('doc-content');
-  if(!impos.length){
-    cont.innerHTML = `<div style="text-align:center;padding:60px 20px;color:var(--empty-txt,#9aa3b5)">
-      <div style="font-size:44px;margin-bottom:10px;opacity:.4">📋</div>
-      <p style="font-size:13px">${records.length?'Sin resultados para los filtros aplicados.':'Aún no tienes importaciones registradas.'}</p>
-    </div>`;
-    return;
-  }
-
-  // Separar: pendientes primero, completos/con nota al final minimizados
-  const allData = impos.map(r => {
-    const ref = r.ref_roman;
-    const d = all[ref]?.docs || {};
-    const nota = all[ref]?.nota || '';
-    const completados = DOC_CAMPOS.filter(c => d[c.id]?.ok).length;
-    const total = DOC_CAMPOS.length;
-    const pct = Math.round(completados/total*100);
-    const esCompleto = pct === 100;
-    const tieneNota = nota.trim().length > 0;
-    return {r, ref, d, nota, completados, total, pct, esCompleto, tieneNota};
-  });
-
-  const pendientes = allData.filter(x => !x.esCompleto && !x.tieneNota);
-  const minimizados = allData.filter(x => x.esCompleto || x.tieneNota);
-
-  const renderCard = ({r, ref, d, nota, completados, total, pct, esCompleto, tieneNota}) => {
-    const fillColor = pct===100 ? '#4ade80' : pct>=50 ? '#f9ca24' : '#ff6b6b';
-    const items = DOC_CAMPOS.map(c => {
-      const estado = d[c.id];
-      const ok = estado?.ok;
-      return `<div class="doc-item ${ok?'checked':''}" onclick="docToggle('${ref}','${c.id}')">
-        <input type="checkbox" ${ok?'checked':''} onclick="event.stopPropagation();docToggle('${ref}','${c.id}')">
-        <span class="doc-item-label">${c.label}</span>
-        ${ok ? `<span class="doc-item-badge ok">✅ ${estado.fecha||''}</span>`
-              : `<span class="doc-item-badge pend">Pendiente</span>`}
-      </div>`;
-    }).join('');
-
-    const headerContent = `
-      <div style="flex:1;min-width:0">
-        <div class="doc-card-ref" style="${esCompleto||tieneNota?'font-size:13px':''}">📦 ${ref}</div>
-        ${r.mercaderia?`<div class="doc-card-merc">${r.mercaderia.substring(0,45)}</div>`:''}
-        ${(!esCompleto&&!tieneNota&&r.proveedor)?`<div style="font-size:10px;color:rgba(255,255,255,.5);margin-top:1px">🏭 ${r.proveedor}</div>`:''}
-      </div>
-      <div class="doc-progress-wrap" style="${esCompleto||tieneNota?'margin-right:8px':''}">
-        <div class="doc-progress-bar"><div class="doc-progress-fill" style="width:${pct}%;background:${fillColor}"></div></div>
-        <div class="doc-progress-txt">${completados}/${total} — ${pct}%</div>
-      </div>`;
-
-    if(esCompleto || tieneNota){
-      return `<div class="doc-card doc-card-mini">
-        <div class="doc-card-header" style="cursor:pointer" onclick="docExpandToggle(this)">
-          ${headerContent}
-          <span class="doc-chevron" style="font-size:16px;color:rgba(255,255,255,.6);margin-left:6px;transition:transform .2s">▾</span>
-        </div>
-        <div class="doc-card-body" style="display:none">
-          <div class="doc-checklist">${items}</div>
-          <div class="doc-nota-wrap">
-            <textarea class="doc-nota-input" placeholder="📝 Observaciones..." oninput="docSaveNota('${ref}',this.value)">${nota}</textarea>
-          </div>
-        </div>
-      </div>`;
-    }
-
-    return `<div class="doc-card">
-      <div class="doc-card-header">${headerContent}</div>
-      <div class="doc-checklist">${items}</div>
-      <div class="doc-nota-wrap">
-        <textarea class="doc-nota-input" placeholder="📝 Observaciones..." oninput="docSaveNota('${ref}',this.value)">${nota}</textarea>
-      </div>
-    </div>`;
-  };
-
-  const cards = [
-    ...pendientes.map(renderCard),
-    minimizados.length ? `<div style="grid-column:1/-1;padding:6px 2px 4px;font-size:11px;font-weight:700;color:var(--text-muted,#8a99b5);letter-spacing:.4px;border-top:1px dashed var(--border,#dde5f0);margin-top:4px">✅ COMPLETADOS / CON OBSERVACIÓN (${minimizados.length})</div>` : '',
-    ...minimizados.map(renderCard),
-  ].join('');
-
-  cont.innerHTML = `<div class="doc-grid">${cards}</div>`;
-}
-
-function docExportExcel(){
-  const all = docLoad();
-  const impos = records.filter(r=>r.ref_roman).sort((a,b)=>(b.ref_roman||'').localeCompare(a.ref_roman||''));
-  if(!impos.length){ toast('No hay importaciones para exportar','danger'); return; }
-
-  const headers = ['REF', ...DOC_CAMPOS.map(c=>c.label), 'COMPLETADO %', 'NOTAS'];
-  const thStyle = 'background:#0f1f3d;color:#fff;padding:7px 12px;font-size:10px;font-weight:700;letter-spacing:.4px;border:1px solid #1e3a6e;text-align:center';
-  const tdBase = 'padding:6px 10px;border:1px solid #dde5f0;font-size:11px;text-align:center;vertical-align:middle';
-
-  const dataRows = impos.map(r => {
-    const ref = r.ref_roman;
-    const d = all[ref]?.docs||{};
-    const nota = all[ref]?.nota||'';
-    const completados = DOC_CAMPOS.filter(c=>d[c.id]?.ok).length;
-    const pct = Math.round(completados/DOC_CAMPOS.length*100);
-    const pctColor = pct===100?'#16693a':pct>=50?'#856404':'#b91c1c';
-    const pctBg = pct===100?'#edf7ee':pct>=50?'#fff9c4':'#fce4ec';
-
-    const docCells = DOC_CAMPOS.map(c => {
-      const ok = d[c.id]?.ok;
-      const fecha = d[c.id]?.fecha||'';
-      const bg = ok ? '#edf7ee' : '#fce4ec';
-      const color = ok ? '#16693a' : '#b91c1c';
-      const txt = ok ? `✅${fecha?' '+fecha:''}` : '❌';
-      return `<td style="${tdBase};background:${bg};color:${color};font-weight:700">${txt}</td>`;
-    }).join('');
-
-    return `<tr>
-      <td style="${tdBase};font-weight:700;text-align:left;background:#f0f4fb">${ref}${r.mercaderia?'<br><span style="font-size:10px;color:#8a99b5">'+r.mercaderia.substring(0,40)+'</span>':''}</td>
-      ${docCells}
-      <td style="${tdBase};background:${pctBg};color:${pctColor};font-weight:800;font-size:12px">${pct}%</td>
-      <td style="${tdBase};text-align:left;color:#5a6a85;font-size:10px">${nota}</td>
-    </tr>`;
-  }).join('');
-
-  const html = `<html><head><meta charset="UTF-8">
-    <style>body{font-family:'Segoe UI',Arial,sans-serif}</style></head><body>
-    <h2 style="font-family:'Segoe UI';color:#0f1f3d;margin-bottom:2px">CONTROL DE DOCUMENTOS — IMPORTACIONES ROMAN</h2>
-    <p style="font-size:11px;color:#888;margin-bottom:14px">Generado: ${new Date().toLocaleDateString('es-PE',{day:'2-digit',month:'long',year:'numeric'})}</p>
-    <table border="0" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%">
-      <thead><tr>${headers.map(h=>`<th style="${thStyle}">${h}</th>`).join('')}</tr></thead>
-      <tbody>${dataRows}</tbody>
-    </table></body></html>`;
-
-  const blob = new Blob([html],{type:'application/vnd.ms-excel;charset=utf-8'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href=url; a.download=`Documentos_ROMAN_${new Date().toISOString().split('T')[0]}.xls`;
-  a.click();
-  toast('✅ Excel de documentos descargado');
-}
-</script>
