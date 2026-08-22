@@ -1252,6 +1252,7 @@ const DOC_CAMPOS = [
   {id:'hbl_telex',        label:'HBL / TELEX'},
   {id:'direccionamiento', label:'DIRECCIONAMIENTO'},
   {id:'cert_origen',      label:'CERTIFICADO DE ORIGEN'},
+  {id:'nota_credito',     label:'NOTA DE CRÉDITO'},
   {id:'dam_conta',        label:'DAM REMITIDA A CONTABILIDAD',      enImagen:false},
   {id:'costeo_conta',     label:'COSTEO REMITIDO A CONTABILIDAD',   enImagen:false},
   {id:'merc_sistema',     label:'MERCADERÍA INGRESADA AL SISTEMA',  enImagen:false},
@@ -1270,7 +1271,7 @@ function docEstadoDe(item){
   return 'pend';
 }
 
-// Ciclo: pendiente -> ok -> no requiere -> pendiente
+// Ciclo: pendiente -> ok -> pendiente corrección -> no requiere -> pendiente
 function docCycle(ref, campoId, containerId){
   if(!ref){ toast('Ingresa y guarda el REF.ROMAN primero','danger'); return; }
   const all = docLoad();
@@ -1281,6 +1282,8 @@ function docCycle(ref, campoId, containerId){
     const hoy = new Date().toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'});
     all[ref].docs[campoId] = { estado:'ok', fecha: hoy };
   } else if(actual === 'ok'){
+    all[ref].docs[campoId] = { estado:'pend_corr' };
+  } else if(actual === 'pend_corr'){
     all[ref].docs[campoId] = { estado:'no_req' };
   } else {
     delete all[ref].docs[campoId];
@@ -1298,10 +1301,10 @@ function docWidgetHTML(ref, containerId){
 
   const renderPill = c => {
     const est = docEstadoDe(d[c.id]);
-    const cls = est==='ok' ? 'ok' : est==='no_req' ? 'norq' : 'pend';
-    const icon = est==='ok' ? '✅' : est==='no_req' ? '➖' : '❌';
-    const txt  = est==='ok' ? (d[c.id]?.fecha||'OK') : est==='no_req' ? 'No requiere' : 'Pendiente';
-    return `<div class="doc-pill ${cls}" onclick="docCycle('${ref}','${c.id}','${containerId}')" title="Click para cambiar: Pendiente → OK → No requiere">
+    const cls = est==='ok' ? 'ok' : est==='no_req' ? 'norq' : est==='pend_corr' ? 'corr' : 'pend';
+    const icon = est==='ok' ? '✅' : est==='no_req' ? '➖' : est==='pend_corr' ? '🛠️' : '❌';
+    const txt  = est==='ok' ? (d[c.id]?.fecha||'OK') : est==='no_req' ? 'No requiere' : est==='pend_corr' ? 'Pendiente corrección' : 'Pendiente';
+    return `<div class="doc-pill ${cls}" onclick="docCycle('${ref}','${c.id}','${containerId}')" title="Click para cambiar: Pendiente → OK → Pendiente corrección → No requiere">
       <span>${c.label}</span><span class="doc-pill-state">${icon} ${txt}</span>
     </div>`;
   };
@@ -1315,7 +1318,7 @@ function docWidgetHTML(ref, containerId){
        <div class="doc-widget-list">${seguimientoInterno.map(renderPill).join('')}</div>`
     : '';
 
-  const resueltos = DOC_CAMPOS.filter(c => docEstadoDe(d[c.id]) !== 'pend').length;
+  const resueltos = DOC_CAMPOS.filter(c => { const e = docEstadoDe(d[c.id]); return e==='ok' || e==='no_req'; }).length;
   const pendCount = DOC_CAMPOS.length - resueltos;
 
   return `
@@ -1338,47 +1341,125 @@ function docRefreshFormWidget(){
 }
 
 /* ===== Generar imagen de documentos pendientes (para enviar al jefe) ===== */
+// Helper: rectángulo con esquinas redondeadas para Canvas 2D
+function _docImgRoundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+// Helper: dibuja "ETIQUETA: valor" (negrita + regular) y devuelve la altura usada
+function _docImgKV(ctx,label,value,x,y,fs){
+  ctx.font=`700 ${fs}px 'Segoe UI',Arial,sans-serif`;
+  ctx.fillStyle='#374151';
+  ctx.fillText(label,x,y);
+  const w=ctx.measureText(label+' ').width;
+  ctx.font=`400 ${fs}px 'Segoe UI',Arial,sans-serif`;
+  ctx.fillStyle='#1a1a2e';
+  ctx.fillText(value,x+w,y);
+}
+
 function docGenerateImage(ref){
   const rec = records.find(r => r.ref_roman === ref);
   if(!rec){ toast('No se encontró la IMPO — guarda el registro primero','danger'); return; }
   const all = docLoad();
   const d = all[ref]?.docs || {};
-  const pendientesArr = DOC_CAMPOS.filter(c => c.enImagen !== false && docEstadoDe(d[c.id]) === 'pend');
+  const pendientesArr = DOC_CAMPOS.filter(c => {
+    if(c.enImagen === false) return false;
+    const e = docEstadoDe(d[c.id]);
+    return e === 'pend' || e === 'pend_corr';
+  });
 
   const hbl = rec.bl_house || '—';
   const mbl = rec.bl_master || '—';
   const ctnr = rec.n_ctnr || '—';
-  const invoiceRow = rec.n_factura
-    ? `<div class="die-row"><b>N° INVOICE:</b> ${rec.n_factura}</div>`
-    : '';
 
-  const outstandingHtml = pendientesArr.length
-    ? `<div class="die-outstanding-title">📋 DOCUMENTOS PENDIENTES:</div>` +
-      pendientesArr.map(c => `<div class="die-doc-line">• ${c.label} <span class="x">❌</span></div>`).join('')
-    : `<div class="die-all-ok">✅ Todos los documentos completos</div>`;
+  // Dibujo directo en <canvas> (sin html2canvas) — mucho más liviano y rápido
+  const S = 2; // factor de nitidez, equivalente a @2x
+  const W = 420*S, PAD = 22*S, FS = 12.5*S, FS_TITLE = 16.5*S, LH = 21*S;
+  let rows = 3; // título ya no cuenta; HBL/MBL, contenedor
+  if(rec.n_factura) rows++;
+  rows++; // separador
+  rows++; // "DOCUMENTOS PENDIENTES" título o "todo completo"
+  rows += pendientesArr.length;
+  const H = PAD*2 + (34*S) + rows*LH + (14*S);
 
-  const box = document.getElementById('doc-image-export');
-  box.innerHTML = `
-    <div class="die-title">📌 ${ref}</div>
-    <div class="die-row"><b>HBL:</b> ${hbl} &nbsp; <b>MBL:</b> ${mbl}</div>
-    <div class="die-row"><b>N° CONTENEDOR:</b> ${ctnr}</div>
-    ${invoiceRow}
-    <hr class="die-sep">
-    ${outstandingHtml}
-    <div class="die-footer">Generado ${new Date().toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'})}</div>
-  `;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
 
-  html2canvas(box, {scale:3, backgroundColor:'#ffffff'}).then(canvas => {
-    canvas.toBlob(blob => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Pendientes_${ref}_${new Date().toISOString().split('T')[0]}.png`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast('✅ Imagen generada — lista para enviar');
+  ctx.fillStyle = '#ffffff';
+  _docImgRoundRect(ctx,0,0,W,H,10*S); ctx.fill();
+  ctx.strokeStyle = '#d8dee8'; ctx.lineWidth = S;
+  _docImgRoundRect(ctx,S/2,S/2,W-S,H-S,10*S); ctx.stroke();
+
+  let y = PAD + 16*S;
+  ctx.textBaseline = 'alphabetic';
+
+  ctx.font = `800 ${FS_TITLE}px 'Segoe UI',Arial,sans-serif`;
+  ctx.fillStyle = '#0f2d5e';
+  ctx.fillText('📌 '+ref, PAD, y);
+  y += 32*S;
+
+  _docImgKV(ctx,'HBL:',hbl+'   ',PAD,y,FS);
+  ctx.font = `700 ${FS}px 'Segoe UI',Arial,sans-serif`;
+  const hblW = ctx.measureText('HBL: '+hbl+'   ').width;
+  _docImgKV(ctx,'MBL:',mbl,PAD+hblW,y,FS);
+  y += LH;
+
+  _docImgKV(ctx,'N° CONTENEDOR:',ctnr,PAD,y,FS);
+  y += LH;
+
+  if(rec.n_factura){ _docImgKV(ctx,'N° INVOICE:',rec.n_factura,PAD,y,FS); y += LH; }
+
+  y += 6*S;
+  ctx.strokeStyle = '#e4e9f4'; ctx.lineWidth = S;
+  ctx.beginPath(); ctx.moveTo(PAD,y); ctx.lineTo(W-PAD,y); ctx.stroke();
+  y += 20*S;
+
+  if(pendientesArr.length){
+    ctx.font = `800 ${FS}px 'Segoe UI',Arial,sans-serif`;
+    ctx.fillStyle = '#0f2d5e';
+    ctx.fillText('📋 DOCUMENTOS PENDIENTES:', PAD, y);
+    y += LH;
+    pendientesArr.forEach(c=>{
+      const e = docEstadoDe(d[c.id]);
+      ctx.font = `400 ${FS}px 'Segoe UI',Arial,sans-serif`;
+      ctx.fillStyle = '#1a1a2e';
+      ctx.fillText('• '+c.label, PAD, y);
+      const tag = e==='pend_corr' ? '🛠️ Necesita corrección' : '❌';
+      ctx.font = `800 ${FS*0.9}px 'Segoe UI',Arial,sans-serif`;
+      ctx.fillStyle = e==='pend_corr' ? '#b26a00' : '#c62828';
+      const tagW = ctx.measureText(tag).width;
+      ctx.fillText(tag, W-PAD-tagW, y);
+      y += LH;
     });
-  }).catch(()=> toast('Error generando la imagen','danger'));
+  } else {
+    ctx.font = `700 ${FS+1}px 'Segoe UI',Arial,sans-serif`;
+    ctx.fillStyle = '#16693a';
+    ctx.fillText('✅ Todos los documentos completos', PAD, y);
+    y += LH;
+  }
+
+  y += 6*S;
+  ctx.font = `400 ${FS*0.78}px 'Segoe UI',Arial,sans-serif`;
+  ctx.fillStyle = '#9aa3b5';
+  const footer = 'Generado '+new Date().toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const footerW = ctx.measureText(footer).width;
+  ctx.fillText(footer, W-PAD-footerW, y);
+
+  canvas.toBlob(blob=>{
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Pendientes_${ref}_${new Date().toISOString().split('T')[0]}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('✅ Imagen generada — lista para enviar');
+  });
 }
 
 function docExportExcel(){
@@ -1393,7 +1474,7 @@ function docExportExcel(){
   const dataRows = impos.map(r => {
     const ref = r.ref_roman;
     const d = all[ref]?.docs||{};
-    const resueltos = DOC_CAMPOS.filter(c=>docEstadoDe(d[c.id])!=='pend').length;
+    const resueltos = DOC_CAMPOS.filter(c=>{const e=docEstadoDe(d[c.id]);return e==='ok'||e==='no_req';}).length;
     const pct = Math.round(resueltos/DOC_CAMPOS.length*100);
     const pctColor = pct===100?'#16693a':pct>=50?'#856404':'#b91c1c';
     const pctBg = pct===100?'#edf7ee':pct>=50?'#fff9c4':'#fce4ec';
@@ -1401,9 +1482,9 @@ function docExportExcel(){
     const docCells = DOC_CAMPOS.map(c => {
       const est = docEstadoDe(d[c.id]);
       const fecha = d[c.id]?.fecha||'';
-      const bg = est==='ok' ? '#edf7ee' : est==='no_req' ? '#eef0f4' : '#fce4ec';
-      const color = est==='ok' ? '#16693a' : est==='no_req' ? '#6b7383' : '#b91c1c';
-      const txt = est==='ok' ? `✅${fecha?' '+fecha:''}` : est==='no_req' ? '➖ No requiere' : '❌';
+      const bg = est==='ok' ? '#edf7ee' : est==='no_req' ? '#eef0f4' : est==='pend_corr' ? '#fff3e0' : '#fce4ec';
+      const color = est==='ok' ? '#16693a' : est==='no_req' ? '#6b7383' : est==='pend_corr' ? '#b26a00' : '#b91c1c';
+      const txt = est==='ok' ? `✅${fecha?' '+fecha:''}` : est==='no_req' ? '➖ No requiere' : est==='pend_corr' ? '🛠️ Corrección' : '❌';
       return `<td style="${tdBase};background:${bg};color:${color};font-weight:700">${txt}</td>`;
     }).join('');
 
@@ -2746,7 +2827,7 @@ function prodFotoUrlPreview(url,force){url=url.trim();if(!url)return;const urlCo
 
 
 <!-- ============ TAB: DOCUMENTOS ============ -->
-<div id="doc-image-export"></div>
+
 
 <style>
 /* ===== Widget de Control de Documentos (embebido bajo Notas, por REF) ===== */
@@ -2759,6 +2840,7 @@ function prodFotoUrlPreview(url,force){url=url.trim();if(!url)return;const urlCo
 .doc-pill.pend{background:#fce4ec;color:#c62828;border-color:#f4b8c4}
 .doc-pill.ok{background:#edf7ee;color:#16693a;border-color:#bfe3c6}
 .doc-pill.norq{background:#eef0f4;color:#6b7383;border-color:#dadfe8}
+.doc-pill.corr{background:#fff3e0;color:#b26a00;border-color:#ffd9a0}
 .doc-pill-state{font-size:10px;white-space:nowrap}
 .doc-widget-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .doc-widget-progress{font-size:11px;font-weight:700;color:var(--text-muted,#8a99b5)}
@@ -2767,18 +2849,6 @@ function prodFotoUrlPreview(url,force){url=url.trim();if(!url)return;const urlCo
 body.dark .doc-pill.pend{background:rgba(198,40,40,.2);color:#ff6b6b;border-color:rgba(198,40,40,.35)}
 body.dark .doc-pill.ok{background:rgba(22,105,58,.25);color:#4ade80;border-color:rgba(22,105,58,.4)}
 body.dark .doc-pill.norq{background:rgba(255,255,255,.06);color:#9aa3b5;border-color:rgba(255,255,255,.12)}
+body.dark .doc-pill.corr{background:rgba(178,106,0,.22);color:#ffb74d;border-color:rgba(255,183,77,.4)}
 body.dark .doc-btn-icon{background:rgba(22,105,58,.25);color:#4ade80}
-
-/* Tarjeta de imagen exportable (oculta, usada por html2canvas) */
-#doc-image-export{position:fixed;left:-9999px;top:0;width:420px;background:#ffffff;font-family:'Segoe UI',Arial,sans-serif;border:1px solid #d8dee8;border-radius:10px;padding:20px 22px;box-sizing:border-box}
-#doc-image-export .die-title{font-size:16px;font-weight:800;color:#0f2d5e;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-#doc-image-export .die-row{font-size:12.5px;color:#1a1a2e;margin-bottom:7px;display:flex;gap:6px}
-#doc-image-export .die-row b{color:#374151;font-weight:700}
-#doc-image-export .die-sep{border:none;border-top:1px solid #e4e9f4;margin:12px 0 10px}
-#doc-image-export .die-outstanding-title{font-size:12.5px;font-weight:800;color:#0f2d5e;margin-bottom:8px}
-#doc-image-export .die-doc-line{font-size:12.5px;color:#1a1a2e;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
-#doc-image-export .die-doc-line .x{color:#c62828;font-weight:800}
-#doc-image-export .die-doc-line .ok{color:#16693a;font-weight:800}
-#doc-image-export .die-all-ok{font-size:13px;font-weight:700;color:#16693a}
-#doc-image-export .die-footer{margin-top:14px;font-size:9.5px;color:#9aa3b5;text-align:right}
 </style>
